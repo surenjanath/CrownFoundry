@@ -8,6 +8,7 @@ payload rather than a division by zero.
 from __future__ import annotations
 
 import logging
+import numpy as np
 
 logger = logging.getLogger("crownfoundry.analytics")
 
@@ -222,7 +223,89 @@ def ai_performance() -> dict:
         "training": training,
         "streaks": streaks,
         "difficulty_breakdown": _difficulty_breakdown(matches),
+        "variants": variant_performance(matches),
+        "length_distribution": game_length_distribution(matches),
     }
+
+
+def variant_performance(matches: list | None = None) -> list[dict]:
+    """Performance breakdown across rule configurations."""
+    if matches is None:
+        matches = _finished_matches()
+
+    groups = {
+        "Standard English Draughts": [],
+        "Flying Kings": [],
+        "Men Capture Backwards": [],
+        "Full Modern (Flying + Back)": [],
+    }
+
+    for m in matches:
+        fk = getattr(m, "flying_kings", False)
+        mcb = getattr(m, "men_capture_backwards", False)
+        if fk and mcb:
+            groups["Full Modern (Flying + Back)"].append(m)
+        elif fk:
+            groups["Flying Kings"].append(m)
+        elif mcb:
+            groups["Men Capture Backwards"].append(m)
+        else:
+            groups["Standard English Draughts"].append(m)
+
+    results = []
+    for name, subset in groups.items():
+        total = len(subset)
+        ai_wins = sum(1 for m in subset if m.winner == AI_SIDE)
+        human_wins = sum(1 for m in subset if m.winner == HUMAN_SIDE)
+        draws = sum(1 for m in subset if m.winner == DRAW)
+        results.append(
+            {
+                "variant": name,
+                "total_matches": total,
+                "ai_wins": ai_wins,
+                "human_wins": human_wins,
+                "draws": draws,
+                "ai_win_rate": _round(ai_wins / total) if total else 0.0,
+                "avg_turns": round(sum(int(m.total_turns or 0) for m in subset) / total, 1)
+                if total
+                else 0.0,
+            }
+        )
+    return results
+
+
+def game_length_distribution(matches: list | None = None) -> dict:
+    """Distribution and win rates across short, medium, and long matches."""
+    if matches is None:
+        matches = _finished_matches()
+
+    buckets = {
+        "short": {"label": "< 20 Plies", "matches": []},
+        "medium": {"label": "20 - 40 Plies", "matches": []},
+        "long": {"label": "> 40 Plies", "matches": []},
+    }
+
+    for m in matches:
+        turns = int(getattr(m, "total_turns", 0) or 0)
+        if turns < 20:
+            buckets["short"]["matches"].append(m)
+        elif turns <= 40:
+            buckets["medium"]["matches"].append(m)
+        else:
+            buckets["long"]["matches"].append(m)
+
+    output = {}
+    for key, data in buckets.items():
+        subset = data["matches"]
+        total = len(subset)
+        ai_wins = sum(1 for m in subset if m.winner == AI_SIDE)
+        output[key] = {
+            "label": data["label"],
+            "count": total,
+            "ai_wins": ai_wins,
+            "ai_win_rate": _round(ai_wins / total) if total else 0.0,
+        }
+    return output
 
 
 def _calculate_streaks(results: list[str]) -> dict:
@@ -436,3 +519,175 @@ def milestones() -> list[dict]:
 def summary() -> dict:
     """The cheap poll for the Play tab's status card."""
     return ai_performance()["summary"]
+
+
+def evaluate_position(fen: str | None = None, rules_dict: dict | None = None) -> dict:
+    """Evaluate a board position using the active RL policy and compute tactical metrics."""
+    from ai.agent import AdaptiveAgent, Knobs
+    from game.engine import BLACK, WHITE, Board, VariantRules
+
+    rules = VariantRules.from_dict(rules_dict) if rules_dict else VariantRules()
+    if not fen:
+        board = Board.initial(rules=rules)
+    else:
+        try:
+            board = Board.from_fen(fen, rules=rules)
+        except Exception:
+            board = Board.initial(rules=rules)
+
+    agent = AdaptiveAgent(knobs=Knobs(depth=2, epsilon=0.0, risk=0.5, top_k=5), use_memory=False)
+    legal_moves = list(board.legal_moves())
+    best_move = None
+    best_notation = None
+    best_q = 0.0
+
+    if legal_moves:
+        best_move, scored_moves = agent.select(board, explore=False)
+        best_notation = best_move.notation() if best_move else None
+        if scored_moves:
+            best_q = scored_moves[0].q
+
+    # Compute piece counts and material balance
+    counts = board.piece_counts()
+    black_men = counts.get("black_men", 0)
+    black_kings = counts.get("black_kings", 0)
+    white_men = counts.get("white_men", 0)
+    white_kings = counts.get("white_kings", 0)
+
+    black_val = black_men * 1.0 + black_kings * 1.5
+    white_val = white_men * 1.0 + white_kings * 1.5
+    material_balance = _round(white_val - black_val, 2)
+
+    # Win probability estimation from Q-value
+    win_prob = _round(1.0 / (1.0 + float(np.exp(-best_q * 1.2))), 3) if best_move else 0.5
+
+    move_list = [
+        {
+            "notation": m.notation(),
+            "from_sq": m.origin,
+            "to_sq": m.destination,
+            "is_jump": m.is_jump,
+            "jumped_squares": list(m.captures),
+        }
+        for m in legal_moves
+    ]
+
+    return {
+        "ok": True,
+        "fen": board.to_fen(),
+        "side_to_move": board.side_to_move,
+        "is_game_over": board.is_terminal(),
+        "winner": board.winner(),
+        "q_value": _round(best_q, 4),
+        "win_probability": win_prob,
+        "best_move": best_notation,
+        "material": {
+            "black_men": black_men,
+            "black_kings": black_kings,
+            "white_men": white_men,
+            "white_kings": white_kings,
+            "balance": material_balance,
+        },
+        "legal_moves": move_list,
+    }
+
+
+def simulate_ai_match(
+    black_type: str = "policy",
+    white_type: str = "greedy",
+    max_plies: int = 80,
+    rules_dict: dict | None = None,
+) -> dict:
+    """Simulate an exhibition game between two AI agents and record the complete move trajectory."""
+    import time
+    from ai.agent import AdaptiveAgent, Knobs, play_game
+    from ai.baselines import GreedyMaterialAgent, RandomAgent
+    from game.engine import BLACK, DRAW, WHITE, Board, VariantRules
+
+    rules = VariantRules.from_dict(rules_dict) if rules_dict else VariantRules()
+
+    def make_agent(agent_type: str, seed: int):
+        if agent_type == "random":
+            return RandomAgent(seed=seed)
+        elif agent_type == "greedy":
+            return GreedyMaterialAgent()
+        else:
+            return AdaptiveAgent(
+                knobs=Knobs(depth=2, epsilon=0.15, risk=0.5, top_k=5),
+                seed=seed,
+                use_memory=False,
+            )
+
+    started = time.monotonic()
+    seed = int(time.time() * 1000) % 100000
+    black_agent = make_agent(black_type, seed)
+    white_agent = make_agent(white_type, seed + 42)
+
+    winner, plies = play_game(
+        black_agent,
+        white_agent,
+        explore=False,
+        max_plies=max_plies,
+        record=True,
+    )
+
+    trajectory = [
+        {
+            "turn": 0,
+            "side": None,
+            "move": "Initial Position",
+            "fen": Board.initial(rules=rules).to_fen(),
+        }
+    ]
+
+    for idx, ply in enumerate(plies, start=1):
+        trajectory.append(
+            {
+                "turn": idx,
+                "side": ply.side,
+                "move": ply.move.notation(),
+                "fen": ply.after.to_fen(),
+            }
+        )
+
+    elapsed = round(time.monotonic() - started, 3)
+
+    return {
+        "ok": True,
+        "winner": winner or "draw",
+        "total_plies": len(plies),
+        "elapsed_s": elapsed,
+        "black_agent": black_type,
+        "white_agent": white_type,
+        "final_fen": plies[-1].after.to_fen() if plies else Board.initial(rules=rules).to_fen(),
+        "trajectory": trajectory,
+    }
+
+
+def board_heatmap() -> dict:
+    """Calculate piece occupancy and traffic across the 32 playable dark squares."""
+    from game.engine.notation import split_fen
+    from game.models import GameState
+
+    freq: dict[int, int] = {i: 0 for i in range(1, 33)}
+    states = list(GameState.objects.values_list("board_fen", flat=True)[:500])
+
+    for fen in states:
+        try:
+            _, entries = split_fen(fen)
+            for square, side, is_king in entries:
+                if square in freq:
+                    freq[square] += 1
+        except Exception:
+            continue
+
+    sorted_squares = sorted(freq.items(), key=lambda kv: kv[1], reverse=True)
+    hot_squares = [sq for sq, cnt in sorted_squares[:6]]
+
+    return {
+        "ok": True,
+        "frequencies": freq,
+        "hot_squares": hot_squares,
+        "total_samples": len(states),
+    }
+

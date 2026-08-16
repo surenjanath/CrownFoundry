@@ -24,6 +24,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Backend"))
 
 from game.engine.board import Board  # noqa: E402
+from game.engine.notation import ENGLISH_DRAUGHTS_RULES, VariantRules  # noqa: E402
 
 # The published node counts for English draughts from the standard opening position.
 KNOWN = {
@@ -63,7 +64,11 @@ def main() -> int:
     args = parser.parse_args()
 
     def fresh() -> Board:
-        return Board.from_fen(args.fen) if args.fen else Board.initial()
+        return (
+            Board.from_fen(args.fen, rules=ENGLISH_DRAUGHTS_RULES)
+            if args.fen
+            else Board.initial(rules=ENGLISH_DRAUGHTS_RULES)
+        )
 
     board = fresh()
     print(f"position: {board.to_fen()}")
