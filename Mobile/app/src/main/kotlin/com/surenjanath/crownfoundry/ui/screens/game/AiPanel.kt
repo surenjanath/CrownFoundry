@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,7 +32,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.surenjanath.crownfoundry.R
 import com.surenjanath.crownfoundry.api.EvaluationDto
+import com.surenjanath.crownfoundry.api.Side
 import com.surenjanath.crownfoundry.ui.components.ShimmerHost
+import com.surenjanath.crownfoundry.ui.components.themed.HeaderIconButton
 import com.surenjanath.crownfoundry.ui.components.themed.TextPlaceholder
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
 import com.surenjanath.crownfoundry.utils.color
@@ -45,97 +48,183 @@ const val AiThinkingTag = "aiThinking"
 
 @Composable
 fun AiPanel(
-    thinking: Boolean,
-    reasoning: String?,
-    spokeThroughOllama: Boolean,
-    evaluation: EvaluationDto?,
-    chosen: String?,
+    state: GameState,
+    onBack: () -> Unit,
     modifier: Modifier = Modifier,
     showReasoning: Boolean = true,
     showEvaluation: Boolean = true
 ) {
     val (colorPalette, typography) = LocalAppearance.current
+    val counts = state.counts
+    val isAiTurn = !state.isOver && state.sideToMove == Side.AI
+    val thinking = state.phase == GamePhase.Thinking
+    val capturedBlack = (12 - counts.black).coerceAtLeast(0)
+    val evaluation = state.evaluation
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    val cardBackground = if (isAiTurn) colorPalette.background1 else colorPalette.background0
+    val cardBorder = if (isAiTurn) colorPalette.accent.copy(alpha = 0.35f) else androidx.compose.ui.graphics.Color.Transparent
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = modifier
-            .testTag(AiPanelTag)
-            .height(58.dp)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
-            .background(colorPalette.background1)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .background(cardBackground)
+            .border(1.dp, cardBorder, RoundedCornerShape(14.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .testTag(AiPanelTag)
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(colorPalette.background2)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Image(
-                painter = painterResource(R.drawable.brain),
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(
-                    if (thinking) colorPalette.accent else colorPalette.textSecondary
-                ),
-                modifier = Modifier.size(18.dp)
-            )
-        }
-
-        Column(
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-        ) {
+            // Left: Back button + AI Avatar + Opponent name + Elo + Difficulty
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth()
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                BasicText(
-                    text = "Opponent",
-                    style = typography.xs.semiBold
+                HeaderIconButton(
+                    icon = R.drawable.chevron_back,
+                    color = colorPalette.textSecondary,
+                    onClick = onBack
                 )
 
-                if (!thinking && reasoning != null) {
-                    SourceBadge(spokeThroughOllama)
-                }
-
-                if (!thinking && evaluation != null && showEvaluation) {
-                    BasicText(
-                        text = "Q ${formatSigned(evaluation.qValue)} (${(evaluation.confidence * 100).roundToInt()}%)",
-                        style = typography.xxs.medium.secondary
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(colorPalette.background2)
+                        .border(1.5.dp, if (isAiTurn) colorPalette.accent else androidx.compose.ui.graphics.Color.Transparent, CircleShape)
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.brain),
+                        contentDescription = null,
+                        colorFilter = ColorFilter.tint(
+                            if (thinking || isAiTurn) colorPalette.accent else colorPalette.textSecondary
+                        ),
+                        modifier = Modifier.size(16.dp)
                     )
                 }
-            }
 
-            Box(
-                contentAlignment = Alignment.CenterStart,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (thinking) {
-                    ShimmerHost(
-                        modifier = Modifier
-                            .testTag(AiThinkingTag)
-                            .fillMaxWidth()
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         BasicText(
-                            text = "Thinking…",
-                            style = typography.xs.medium.color(colorPalette.accent)
+                            text = "Opponent",
+                            style = typography.xs.semiBold
                         )
+
+                        if (state.aiStatus.elo > 0) {
+                            BasicText(
+                                text = "${state.aiStatus.elo} Elo",
+                                style = typography.xxs.medium.secondary
+                            )
+                        }
+
+                        // Difficulty tag
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colorPalette.background2)
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            BasicText(
+                                text = state.difficulty.replaceFirstChar { it.uppercase() },
+                                style = typography.xxs.semiBold.copy(color = colorPalette.accent)
+                            )
+                        }
                     }
-                } else if (showReasoning) {
-                    BasicText(
-                        text = reasoning ?: "Waiting for your move.",
-                        style = if (reasoning == null) typography.xs.medium.secondary
-                        else typography.xs.medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+
+                    if (capturedBlack > 0) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            BasicText(text = "Taken:", style = typography.xxs.medium.secondary)
+                            Spacer(
+                                modifier = Modifier
+                                    .size(6.dp)
+                                    .clip(CircleShape)
+                                    .background(colorPalette.accent)
+                            )
+                            BasicText(text = "$capturedBlack", style = typography.xxs.semiBold)
+                        }
+                    }
                 }
             }
+
+            // Right: Q-Evaluation + Remaining White Pieces
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (!thinking && evaluation != null && showEvaluation) {
+                    BasicText(
+                        text = "Q ${formatSigned(evaluation.qValue)}",
+                        style = typography.xxs.semiBold.copy(color = colorPalette.accent)
+                    )
+                }
+
+                // Piece count pill
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colorPalette.background2)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Spacer(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(colorPalette.text)
+                    )
+
+                    BasicText(
+                        text = "${counts.white}",
+                        style = typography.xs.semiBold
+                    )
+
+                    if (counts.whiteKings > 0) {
+                        Image(
+                            painter = painterResource(R.drawable.crown),
+                            contentDescription = null,
+                            colorFilter = ColorFilter.tint(colorPalette.textSecondary),
+                            modifier = Modifier.size(10.dp)
+                        )
+                        BasicText(
+                            text = "${counts.whiteKings}",
+                            style = typography.xxs.semiBold.secondary
+                        )
+                    }
+                }
+            }
+        }
+
+        val reasoning = state.reasoning
+        if (thinking) {
+            ShimmerHost(
+                modifier = Modifier
+                    .testTag(AiThinkingTag)
+                    .fillMaxWidth()
+            ) {
+                BasicText(
+                    text = "Analyzing next move…",
+                    style = typography.xxs.medium.copy(color = colorPalette.accent)
+                )
+            }
+        } else if (showReasoning && reasoning != null) {
+            BasicText(
+                text = reasoning,
+                style = typography.xxs.medium.secondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

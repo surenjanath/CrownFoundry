@@ -110,7 +110,7 @@ fun GameScreen(
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
 
     val showLegalMoves by rememberPreference(showLegalMovesKey, true)
-    val showReasoning by rememberPreference(showReasoningKey, true)
+    var showReasoning by rememberPreference(showReasoningKey, true)
     val showEvaluation by rememberPreference(showEvaluationKey, true)
     val useHaptics by rememberPreference(hapticFeedbackKey, true)
     val difficultyPreference by rememberPreference(difficultyKey, Difficulty.Adaptive)
@@ -254,11 +254,8 @@ fun GameScreen(
                 }
 
                 AiPanel(
-                    thinking = state.phase == GamePhase.Thinking,
-                    reasoning = state.reasoning,
-                    spokeThroughOllama = state.spokeThroughOllama,
-                    evaluation = state.evaluation,
-                    chosen = state.lastAiMove,
+                    state = state,
+                    onBack = { backDispatcher?.onBackPressed() },
                     showReasoning = showReasoning,
                     showEvaluation = showEvaluation,
                     modifier = Modifier.fillMaxWidth()
@@ -276,7 +273,11 @@ fun GameScreen(
                         .padding(16.dp)
                         .padding(windowInsets.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical).asPaddingValues())
                 ) {
-                    board(Modifier.fillMaxSize())
+                    board(
+                        Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(16.dp))
+                    )
                 }
 
                 Column(
@@ -285,21 +286,42 @@ fun GameScreen(
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
                         .padding(windowInsets.only(WindowInsetsSides.End + WindowInsetsSides.Vertical).asPaddingValues())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    MatchHeader(
+                    AiPanel(
                         state = state,
+                        onBack = { backDispatcher?.onBackPressed() },
+                        showReasoning = showReasoning,
+                        showEvaluation = showEvaluation,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    PlayerCard(
+                        state = state,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    GameActionBar(
+                        state = state,
+                        showReasoning = showReasoning,
+                        onToggleReasoning = { showReasoning = !showReasoning },
                         onResign = { confirmingResign = true },
                         onMenu = openMenu,
-                        onBack = { backDispatcher?.onBackPressed() }
+                        onRematch = { scope.launch { state.rematch() } },
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    MatchStatsBar(
-                        state = state,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp)
-                    )
-                    side(Modifier.padding(horizontal = 16.dp))
-                    Spacer(modifier = Modifier.height(96.dp))
+
+                    state.failure?.let { failure ->
+                        GameFailureCard(
+                            failure = failure,
+                            onRetry = { scope.launch { state.retry() } },
+                            onDismiss = state::dismissFailure,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
             }
         } else {
@@ -309,41 +331,33 @@ fun GameScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(windowInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top + WindowInsetsSides.Bottom).asPaddingValues())
-                    .padding(top = 16.dp, bottom = 16.dp)
+                    .padding(top = 28.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
             ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                // Top Arena: Streamlined Opponent Card with integrated back navigation
+                AiPanel(
+                    state = state,
+                    onBack = { backDispatcher?.onBackPressed() },
+                    showReasoning = showReasoning,
+                    showEvaluation = showEvaluation,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    MatchHeader(
-                        state = state,
-                        onResign = { confirmingResign = true },
-                        onMenu = openMenu,
-                        onBack = { backDispatcher?.onBackPressed() }
-                    )
-                    MatchStatsBar(
-                        state = state,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                    )
-                }
+                )
 
+                // Center Arena: Fixed 1:1 Checkers Board with elegant rounded frame
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
                         .aspectRatio(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(colorPalette.background1)
                 ) {
                     board(Modifier.fillMaxSize())
                 }
 
+                // Bottom Arena: Player Card + Action Toolbar + Failures
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     state.failure?.let { failure ->
                         GameFailureCard(
@@ -354,14 +368,18 @@ fun GameScreen(
                         )
                     }
 
-                    AiPanel(
-                        thinking = state.phase == GamePhase.Thinking,
-                        reasoning = state.reasoning,
-                        spokeThroughOllama = state.spokeThroughOllama,
-                        evaluation = state.evaluation,
-                        chosen = state.lastAiMove,
+                    PlayerCard(
+                        state = state,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    GameActionBar(
+                        state = state,
                         showReasoning = showReasoning,
-                        showEvaluation = showEvaluation,
+                        onToggleReasoning = { showReasoning = !showReasoning },
+                        onResign = { confirmingResign = true },
+                        onMenu = openMenu,
+                        onRematch = { scope.launch { state.rematch() } },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -392,183 +410,66 @@ fun GameScreen(
     }
 }
 
-/** Whose move it is, which turn, and how much wood is still on the board. */
-@OptIn(ExperimentalFoundationApi::class)
+/** Top navigation bar with match turn counter, difficulty pill, rule tags, and material bar */
 @Composable
-private fun MatchHeader(
+private fun GameTopNavBar(
     state: GameState,
-    onResign: () -> Unit,
-    onMenu: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val (colorPalette, typography) = LocalAppearance.current
-
-    val title = when {
-        state.phase == GamePhase.Loading -> "Setting up"
-        state.isOver -> when (state.winner) {
-            Side.HUMAN -> "You win"
-            Side.AI -> "It wins"
-            Side.DRAW -> "Draw"
-            else -> "Finished"
-        }
-        state.mustCapture -> "You must capture"
-        state.sideToMove == Side.HUMAN -> "Your move"
-        else -> "Its move"
-    }
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-    ) {
-        // Left: Timer and Flag Button
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            GameTimer(isActive = !state.isOver && state.phase != GamePhase.Loading)
-
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .combinedClickable(
-                        onClick = { if (!state.isOver) onResign() else onMenu() },
-                        onLongClick = onMenu
-                    )
-                    .background(colorPalette.background1)
-                    .testTag(ResignButtonTag)
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.flag),
-                    contentDescription = "Resign or menu",
-                    colorFilter = ColorFilter.tint(
-                        if (!state.isOver) colorPalette.text else colorPalette.textDisabled
-                    ),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-
-        // Right: Status, Turn, Tallies, Back Button
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Column(horizontalAlignment = Alignment.End) {
-                BasicText(
-                    text = title,
-                    style = typography.m.semiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                BasicText(
-                    text = "Turn ${state.turnNumber}",
-                    style = typography.xxs.medium.secondary
-                )
-            }
-
-            val counts = state.counts
-
-            Tally(
-                color = colorPalette.accent,
-                total = counts.black,
-                kings = counts.blackKings,
-                label = "You"
-            )
-
-            Tally(
-                color = colorPalette.text,
-                total = counts.white,
-                kings = counts.whiteKings,
-                label = "It"
-            )
-
-            HeaderIconButton(
-                icon = R.drawable.chevron_back,
-                color = colorPalette.textSecondary,
-                onClick = onBack
-            )
-        }
-    }
-}
-
-@Composable
-private fun GameTimer(isActive: Boolean) {
-    val (colorPalette, typography) = LocalAppearance.current
-    var seconds by rememberSaveable { mutableStateOf(0) }
-
-    LaunchedEffect(isActive) {
-        if (!isActive) return@LaunchedEffect
-        while (true) {
-            delay(1000)
-            seconds++
-        }
-    }
-
-    val minutes = seconds / 60
-    val remSeconds = seconds % 60
-    val timeText = "%02d:%02d".format(minutes, remSeconds)
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
-        modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(colorPalette.background1)
-            .padding(horizontal = 8.dp, vertical = 6.dp)
-    ) {
-        Image(
-            painter = painterResource(R.drawable.time),
-            contentDescription = null,
-            colorFilter = ColorFilter.tint(colorPalette.accent),
-            modifier = Modifier.size(14.dp)
-        )
-        BasicText(
-            text = timeText,
-            style = typography.xs.semiBold
-        )
-    }
-}
-
-@Composable
-private fun MatchStatsBar(state: GameState, modifier: Modifier = Modifier) {
-    val (colorPalette, typography) = LocalAppearance.current
     val counts = state.counts
-
     val humanPieces = counts.black
     val aiPieces = counts.white
     val totalPieces = (humanPieces + aiPieces).coerceAtLeast(1)
     val humanFraction = (humanPieces.toFloat() / totalPieces).coerceIn(0.05f, 0.95f)
 
     val materialDiff = humanPieces - aiPieces
-    val kingsDiff = counts.blackKings - counts.whiteKings
-
-    val capturedWhite = (12 - counts.white).coerceAtLeast(0)
-    val capturedBlack = (12 - counts.black).coerceAtLeast(0)
-
     val diffText = when {
         materialDiff > 0 -> "+$materialDiff Pieces"
         materialDiff < 0 -> "-${-materialDiff} Pieces"
-        else -> "Equal Pieces"
+        else -> "Equal Material"
     }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(5.dp),
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(colorPalette.background1)
-            .padding(horizontal = 12.dp, vertical = 7.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = modifier.fillMaxWidth()
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
+            // Left: Back button + Turn counter + Material advantage badge
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                HeaderIconButton(
+                    icon = R.drawable.chevron_back,
+                    color = colorPalette.textSecondary,
+                    onClick = onBack
+                )
+
+                BasicText(
+                    text = "Turn ${state.turnNumber}",
+                    style = typography.s.semiBold
+                )
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(colorPalette.background1)
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    BasicText(
+                        text = diffText,
+                        style = typography.xxs.medium.secondary
+                    )
+                }
+            }
+
+            // Right: Difficulty pill + Active rule variant badge
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -576,9 +477,9 @@ private fun MatchStatsBar(state: GameState, modifier: Modifier = Modifier) {
                 // Difficulty pill
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(colorPalette.background2)
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colorPalette.background1)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     BasicText(
                         text = state.difficulty.replaceFirstChar { it.uppercase() },
@@ -586,40 +487,14 @@ private fun MatchStatsBar(state: GameState, modifier: Modifier = Modifier) {
                     )
                 }
 
-                // Material diff badge
-                BasicText(
-                    text = diffText,
-                    style = typography.xxs.medium.secondary
-                )
-
-                if (kingsDiff != 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Image(
-                            painter = painterResource(R.drawable.crown),
-                            contentDescription = null,
-                            colorFilter = ColorFilter.tint(
-                                if (kingsDiff > 0) colorPalette.accent else colorPalette.textSecondary
-                            ),
-                            modifier = Modifier.size(10.dp)
-                        )
-                        BasicText(
-                            text = if (kingsDiff > 0) "+$kingsDiff" else "$kingsDiff",
-                            style = typography.xxs.medium.secondary
-                        )
-                    }
-                }
-
                 // Rule variant badge if non-standard
                 state.rules?.let { r ->
                     if (r.flyingKings || r.menCaptureBackwards) {
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(colorPalette.background2)
-                                .padding(horizontal = 5.dp, vertical = 1.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colorPalette.background1)
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             BasicText(
                                 text = if (r.flyingKings && r.menCaptureBackwards) "Flying & Back"
@@ -631,61 +506,9 @@ private fun MatchStatsBar(state: GameState, modifier: Modifier = Modifier) {
                     }
                 }
             }
-
-            // Captured pieces summary
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    BasicText(text = "Taken:", style = typography.xxs.medium.secondary)
-                    if (capturedWhite > 0) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Spacer(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(colorPalette.text)
-                            )
-                            BasicText(text = "$capturedWhite", style = typography.xxs.semiBold)
-                        }
-                    }
-                    if (capturedBlack > 0) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Spacer(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(colorPalette.accent)
-                            )
-                            BasicText(text = "$capturedBlack", style = typography.xxs.semiBold)
-                        }
-                    }
-                    if (capturedWhite == 0 && capturedBlack == 0) {
-                        BasicText(text = "0", style = typography.xxs.medium.secondary)
-                    }
-                }
-
-                // AI Elo
-                if (state.aiStatus.elo > 0) {
-                    BasicText(
-                        text = "${state.aiStatus.elo} Elo",
-                        style = typography.xxs.medium.secondary
-                    )
-                }
-            }
         }
 
-        // Segmented live balance bar
+        // Live piece balance bar
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -701,42 +524,6 @@ private fun MatchStatsBar(state: GameState, modifier: Modifier = Modifier) {
                     .background(colorPalette.accent)
             )
         }
-    }
-}
-
-@Composable
-private fun Tally(color: Color, total: Int, kings: Int, label: String) {
-    val (colorPalette, typography) = LocalAppearance.current
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(colorPalette.background1)
-            .padding(horizontal = 8.dp, vertical = 5.dp)
-    ) {
-        Spacer(
-            modifier = Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(color)
-        )
-
-        BasicText(text = "$total", style = typography.xs.semiBold)
-
-        if (kings > 0) {
-            Image(
-                painter = painterResource(R.drawable.crown),
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(colorPalette.textSecondary),
-                modifier = Modifier.size(10.dp)
-            )
-
-            BasicText(text = "$kings", style = typography.xxs.medium.secondary)
-        }
-
-        BasicText(text = label, style = typography.xxs.medium.secondary)
     }
 }
 
