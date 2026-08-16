@@ -1,0 +1,87 @@
+# ==============================================================================
+# CrownFoundry .gitignore
+# ==============================================================================
+
+# --- Operating System ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# --- IDE & Editors ---
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+*.iml
+.project
+.settings/
+.classpath
+
+# --- Python & Django ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+Backend/.venv/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+local_settings.py
+db.sqlite3-journal
+crownfoundry.sqlite3-journal
+
+# --- Android & Gradle ---
+.gradle/
+Mobile/.gradle/
+Mobile/.kotlin/
+build/
+**/build/
+bin/
+gen/
+out/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties
+Mobile/local.properties
+Mobile/keystore.properties
+*.hprof
+
+# Android Studio / IntelliJ project files
+*.iml
+.idea/
+.idea/caches/
+.idea/libraries/
+.idea/modules.xml
+.idea/workspace.xml
+.idea/navEditor.xml
+.idea/assetWizardSettings.xml
+
+# Android Keystore files (keep release.jks if committed, or exclude secrets)
+*.keystore
+!release.jks
+
+# Logs & Temporary Files
+*.log
+/tmp/
+dump.xml
+dump_test.xml
+Backend/var/
