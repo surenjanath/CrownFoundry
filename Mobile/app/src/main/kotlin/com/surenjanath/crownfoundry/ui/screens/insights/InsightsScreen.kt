@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.surenjanath.crownfoundry.LocalWindowInsets
 import com.surenjanath.crownfoundry.api.ApiError
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
+import com.surenjanath.crownfoundry.offline.Offline
 import com.surenjanath.crownfoundry.api.PerformanceDto
 import com.surenjanath.crownfoundry.ui.components.ShimmerHost
 import com.surenjanath.crownfoundry.ui.components.charts.BarChart
@@ -66,7 +67,7 @@ fun InsightsScreen() {
 
     val backendUrl by rememberPreference(backendUrlKey, defaultBackendUrl)
     var attempt by remember { mutableIntStateOf(0) }
-    val holder = remember { InsightsStateHolder(CrownFoundryClient) }
+    val holder = remember { InsightsStateHolder(Offline.api) }
 
     LaunchedEffect(backendUrl, attempt) {
         CrownFoundryClient.baseUrl = backendUrl

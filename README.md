@@ -8,7 +8,7 @@
 ![Django](https://img.shields.io/badge/Django-6.0-092E20?logo=django&logoColor=white)
 ![Ktor](https://img.shields.io/badge/Ktor-2.3-F88909?logo=ktor&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-LLM_Bridge-000000?logo=ollama&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-363_Passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-689_Passing-brightgreen)
 
 <br/>
 
@@ -86,6 +86,8 @@ When the opponent moves, an integrated local LLM bridge (via **Ollama**) transla
   - **Online Updates**: Every AI turn updates replay memory and executes a gradient step.
   - **Post-Match Credit Assignment**: Replays completed matches to backpropagate terminal rewards (+10 Win, -10 Loss, +3 Crown, +2 Capture, -2 Lost Man).
   - **Self-Play Training**: Headless self-play engine (`python manage.py train_selfplay`) for offline policy bootstrapping and evaluation.
+- **True Offline Play**: The trained policy ships to the phone as a ~110 KB artifact and runs there — a full Kotlin port of the rules referee, the feature encoder, the Q-network and the alpha-beta search. Same weights, same depth, same node budget as the server, so the offline opponent is not a weaker one. If the device's copy has fallen behind, it says **"AI engine needs updating"** and keeps playing with what it has.
+- **It Learns Offline Too**: Finished offline games run the same Monte-Carlo credit assignment the backend runs, fine-tuning the on-device weights before the next game starts. Those games then sync back to the server, which replays every ply through the real engine, trains on them, and publishes a new policy the device picks up — so a week spent offline still feeds the shared opponent.
 - **Adaptive Opponent Profiling**: Dynamically tracks player aggression, king-rush tendencies, and capture rates to customize search depth and exploration.
 - **Natural Language Move Commentary**: Bridges to a local **Ollama** LLM instance (e.g. `qwen3.5:9b` or `llama3`) to explain strategic reasoning behind each chosen move; gracefully falls back to deterministic heuristic narratives if offline.
 - **Bespoke Jetpack Compose UI**: Fast, fluid Android interface adapted from ViMusic's design system — custom fluid theming, animated piece hops and jump arcs, coronation effects, and zero boilerplate Material bloat.
@@ -101,11 +103,13 @@ CrownFoundry/
 │   ├── game/                # Rules referee (engine/), match models, REST views
 │   │   └── engine/          # Pure Python rules implementation (zero Django imports)
 │   ├── ai/                  # Q-network (NumPy), replay buffer, Ollama bridge, self-play
+│   │                        #   + export.py / views.py: the engine artifact the phone downloads
 │   ├── analytics/           # ELO calculator, player profiling, learning metrics
 │   └── crownfoundry/        # Project settings, routing, WSGI/ASGI
 ├── Mobile/                  # Native Android Client (Kotlin 2.1 + Jetpack Compose 1.7)
 │   ├── app/                 # UI screens (Play, Game, Matches, Insights, Settings)
 │   ├── api/                 # Ktor 2.3 HTTP client and serializable DTOs
+│   ├── engine/              # The offline brain: rules, encoder, Q-network, search, learner
 │   ├── compose-routing/     # Modular screen navigation
 │   └── compose-persist/     # Survives activity recreation & config changes
 ├── tools/                   # Validation & testing harness
@@ -141,6 +145,51 @@ sequenceDiagram
     Human->>Client: Completes match
     Client->>Referee: Match finished
     Referee->>RL: Triggers post-match credit assignment & replay optimization
+```
+
+### Offline Loop
+
+With no connection the app referees itself. Everything the player sees is the same; what changes is
+who is answering, and that the commentary comes from the heuristic narrator instead of Ollama.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Human as Human Player (Black)
+    participant Client as Android App (Compose)
+    participant Engine as On-Device Engine (:engine)
+    participant Store as Local Match Store
+    participant Server as Django Referee
+
+    Note over Client,Server: Connection lost — the referee cannot be reached
+
+    Human->>Client: Taps Play
+    Client->>Server: POST /api/match/start/
+    Server--xClient: unreachable
+    Client->>Engine: Start a local match instead
+    Engine-->>Client: Opening position + legal moves
+
+    loop every turn
+        Human->>Client: Plays a move
+        Client->>Engine: Validate & apply (same rules as the server)
+        Client->>Engine: Alpha-beta search over the downloaded policy
+        Engine-->>Client: Move, Q-values, heuristic reasoning
+        Client->>Store: Append the ply
+    end
+
+    Client->>Engine: Game over — Monte-Carlo pass over the finished game
+    Engine->>Engine: Fine-tune the on-device weights, remember what not to repeat
+
+    Note over Client,Server: Connection returns
+
+    Client->>Server: POST /api/ai/engine/sync/ {"matches": [...]}
+    Server->>Server: Replay every ply through the real engine, import, queue training
+    Server-->>Client: Accepted / rejected, plus the current engine manifest
+    Client->>Server: GET /api/ai/engine/manifest/
+    Server-->>Client: version 29 — newer than the phone's 28
+    Client->>Server: GET /api/ai/engine/download/
+    Server-->>Client: CFE1 artifact (~110 KB, checksum-verified)
+    Client->>Engine: Install — the phone is current again
 ```
 
 ---
@@ -254,6 +303,9 @@ All API endpoints live under `/api/` and return standard JSON responses with `"o
 | `POST` | `/api/match/<uuid>/resign/` | Concede the current game |
 | `GET` | `/api/analytics/ai-performance/`| Fetch full learning-curve data, win-rates, and mistake series |
 | `GET` | `/api/analytics/summary/` | Compact summary of AI performance and stats |
+| `GET` | `/api/ai/engine/manifest/` | The current policy's version, architecture, size and checksum |
+| `GET` | `/api/ai/engine/download/` | That policy as a `CFE1` artifact for on-device play (ETag-cached) |
+| `POST` | `/api/ai/engine/sync/` | Upload games played offline; every ply is replayed before import |
 
 For complete payload structures and FEN specifications, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
@@ -261,7 +313,7 @@ For complete payload structures and FEN specifications, see [`ARCHITECTURE.md`](
 
 ## 🧪 Testing & Verification
 
-### 1. Backend Unit & Regression Suite (360+ Tests)
+### 1. Backend Unit & Regression Suite (394 Tests)
 
 ```bash
 cd Backend
@@ -283,11 +335,25 @@ python tools/perft.py --depth 8
 python tools/e2e_smoke.py
 ```
 
-### 4. Mobile Client Unit Tests
+### 4. Mobile Client Unit Tests (295 Tests)
 
 ```bash
 cd Mobile
-./gradlew :api:testDebugUnitTest :app:testDebugUnitTest
+./gradlew testDebugUnitTest
+```
+
+### 5. Cross-Language Engine Verification
+
+The offline engine is a port, so it is tested against the original rather than against itself: perft
+counts to depth 5 for both rule variants, every feature scalar from both perspectives, and a real
+trained network exported by `ai.export` whose numpy outputs the Kotlin forward pass has to reproduce.
+
+```bash
+cd Mobile
+./gradlew :engine:testDebugUnitTest --tests "*ArtifactTest" --tests "*FeaturesTest" --tests "*BoardTest"
+
+# What a turn actually costs, printed rather than asserted:
+./gradlew :engine:testDebugUnitTest --tests "*SearchBudgetTest" -i | grep -E "search:|forward pass:"
 ```
 
 ---

@@ -89,6 +89,13 @@ class Match(models.Model):
 
     WINNER_CHOICES = ((BLACK, "black"), (WHITE, "white"), (DRAW, "draw"))
 
+    #: Where the game was refereed. ``offline`` games were played against the on-device engine and
+    #: imported afterwards by ``/api/ai/engine/sync/``; every ply still went through this engine
+    #: on the way in, so nothing downstream has to care which one a match is.
+    ORIGIN_SERVER = "server"
+    ORIGIN_OFFLINE = "offline"
+    ORIGIN_CHOICES = ((ORIGIN_SERVER, "server"), (ORIGIN_OFFLINE, "offline"))
+
     match_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     player = models.ForeignKey(PlayerProfile, on_delete=models.CASCADE, related_name="matches")
     difficulty = models.CharField(max_length=16, choices=DIFFICULTY_CHOICES, default="adaptive")
@@ -107,9 +114,24 @@ class Match(models.Model):
     repetition_history = models.JSONField(default=list, blank=True)
     rules_data = models.JSONField(default=dict, blank=True)
 
+    origin = models.CharField(
+        max_length=8, choices=ORIGIN_CHOICES, default=ORIGIN_SERVER, db_index=True
+    )
+    #: The id the device gave this game in its own outbox. Empty for anything played online.
+    client_ref = models.CharField(max_length=64, blank=True, default="")
+
     class Meta:
         ordering = ("-start_time",)
         indexes = [models.Index(fields=["player", "-start_time"])]
+        constraints = [
+            # A phone that loses the response to a sync retries the same outbox, so the import
+            # has to be idempotent. Partial, because online matches all share the empty ref.
+            models.UniqueConstraint(
+                fields=["player", "client_ref"],
+                condition=~models.Q(client_ref=""),
+                name="unique_client_ref_per_player",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"match {self.match_id} ({self.status})"

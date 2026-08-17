@@ -4,6 +4,8 @@ plugins {
     id("com.android.application")
     kotlin("android")
     id("org.jetbrains.kotlin.plugin.compose")
+    // Offline matches are persisted as JSON in the app's private directory.
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 /**
@@ -26,8 +28,8 @@ android {
         // Google Play requires new apps and updates to target API 35 today, and API 36 from
         // 31 Aug 2026. Targeting 36 satisfies both.
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     namespace = "com.surenjanath.crownfoundry"
@@ -90,6 +92,9 @@ dependencies {
     implementation(projects.composePersist)
     implementation(projects.composeRouting)
     implementation(projects.api)
+    implementation(projects.engine)
+
+    implementation(libs.kotlinx.serialization.json)
 
     implementation(libs.compose.activity)
     implementation(libs.compose.foundation)

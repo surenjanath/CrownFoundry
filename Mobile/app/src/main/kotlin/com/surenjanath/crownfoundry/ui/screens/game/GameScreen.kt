@@ -55,6 +55,7 @@ import com.surenjanath.crownfoundry.LocalWindowInsets
 import com.surenjanath.crownfoundry.R
 import com.surenjanath.crownfoundry.api.CheckersApi
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
+import com.surenjanath.crownfoundry.offline.Offline
 import com.surenjanath.crownfoundry.api.Side
 import com.surenjanath.crownfoundry.enums.Difficulty
 import com.surenjanath.crownfoundry.ui.components.LocalMenuState
@@ -98,7 +99,7 @@ const val ResignButtonTag = "resignButton"
 @Composable
 fun GameScreen(
     matchId: String?,
-    api: CheckersApi = CrownFoundryClient
+    api: CheckersApi = Offline.api
 ) {
     val (colorPalette, typography) = LocalAppearance.current
 
@@ -148,6 +149,13 @@ fun GameScreen(
 
     LaunchedEffect(state) {
         if (state.phase == GamePhase.Idle) state.begin(resumeId)
+    }
+
+    // A finished game is the moment there is something new to send. If it was played offline the
+    // outbox now has a game in it; if it was played online the server has just retrained, and
+    // either way this is when the device is most likely to be behind.
+    LaunchedEffect(state.isOver) {
+        if (state.isOver) Offline.synchroniseInBackground(playerId)
     }
 
     var confirmingResign by rememberSaveable { mutableStateOf(false) }

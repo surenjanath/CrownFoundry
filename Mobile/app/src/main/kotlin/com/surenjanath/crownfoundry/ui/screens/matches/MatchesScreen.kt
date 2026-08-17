@@ -36,6 +36,7 @@ import com.surenjanath.crownfoundry.LocalWindowInsets
 import com.surenjanath.crownfoundry.R
 import com.surenjanath.crownfoundry.api.ApiError
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
+import com.surenjanath.crownfoundry.offline.Offline
 import com.surenjanath.crownfoundry.api.MatchSummaryDto
 import com.surenjanath.crownfoundry.ui.components.LocalMenuState
 import com.surenjanath.crownfoundry.ui.components.ShimmerHost
@@ -74,7 +75,7 @@ fun MatchesScreen(
     val backendUrl by rememberPreference(backendUrlKey, defaultBackendUrl)
 
     var attempt by remember { mutableIntStateOf(0) }
-    val holder = remember(playerId) { MatchesStateHolder(CrownFoundryClient, playerId) }
+    val holder = remember(playerId) { MatchesStateHolder(Offline.api, playerId) }
 
     LaunchedEffect(playerId, backendUrl, attempt) {
         CrownFoundryClient.baseUrl = backendUrl

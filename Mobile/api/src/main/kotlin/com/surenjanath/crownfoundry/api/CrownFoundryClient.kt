@@ -6,6 +6,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.call.body
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.parameter
 import io.ktor.client.request.request
@@ -20,6 +21,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -29,10 +31,20 @@ import kotlinx.serialization.json.put
  * The one client the app talks through. A single engine for the process, a base URL that Settings
  * can move underneath it, and no exception ever crossing back into a composable.
  */
-object CrownFoundryClient : CheckersApi {
+object CrownFoundryClient : CheckersApi, EngineApi {
 
     /** Enough for the referee, which only ever moves pieces on a board. */
     const val NORMAL_TIMEOUT_SECONDS = 10
+
+    /**
+     * The engine artifact is small - about 110 KB for the shipped architecture - but it may be
+     * arriving over whatever the phone has, and a download that gives up at ten seconds would
+     * leave offline mode permanently unavailable on a bad connection.
+     */
+    const val DOWNLOAD_TIMEOUT_SECONDS = 60
+
+    /** A full outbox means the server is replaying and training on every game in it. */
+    const val SYNC_TIMEOUT_SECONDS = 120
 
     /**
      * The AI turn may be waiting on a local LLM to finish a sentence. Ten seconds would abandon a
@@ -151,6 +163,46 @@ object CrownFoundryClient : CheckersApi {
 
     override suspend fun summary(): Outcome<AnalyticsSummaryDto> =
         call("/api/analytics/summary/", AnalyticsSummaryDto.serializer())
+
+    // --- engine distribution ----------------------------------------------------------------
+
+    override suspend fun engineManifest(): Outcome<EngineManifestDto> =
+        call(ENGINE_MANIFEST_PATH, EngineManifestDto.serializer())
+
+    override suspend fun downloadEngine(): Outcome<ByteArray> {
+        val url = baseUrl + ENGINE_DOWNLOAD_PATH
+        return try {
+            val response = httpClient.request(url) {
+                method = HttpMethod.Get
+                timeout {
+                    requestTimeoutMillis = DOWNLOAD_TIMEOUT_SECONDS.seconds
+                    socketTimeoutMillis = DOWNLOAD_TIMEOUT_SECONDS.seconds
+                    connectTimeoutMillis = NORMAL_TIMEOUT_SECONDS.seconds
+                }
+            }
+            if (response.status.isSuccess()) Outcome.Success(response.body<ByteArray>())
+            else Outcome.Failure(httpFailure(response.status.value, response.bodyAsText()))
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Throwable) {
+            coroutineContext.ensureActive()
+            Outcome.Failure(asApiError(failure, url, DOWNLOAD_TIMEOUT_SECONDS))
+        }
+    }
+
+    override suspend fun syncOfflineMatches(
+        playerId: String?,
+        matches: List<OfflineMatchDto>
+    ): Outcome<EngineSyncDto> = call(
+        path = ENGINE_SYNC_PATH,
+        serializer = EngineSyncDto.serializer(),
+        method = HttpMethod.Post,
+        body = buildJsonObject {
+            playerId?.let { put("player_id", it) }
+            put("matches", apiJson.encodeToJsonElement(ListSerializer(OfflineMatchDto.serializer()), matches))
+        },
+        timeoutSeconds = SYNC_TIMEOUT_SECONDS
+    )
 
     /**
      * Settings' "test connection": probes a candidate URL without adopting it, so a typo cannot

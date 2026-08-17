@@ -16,12 +16,14 @@ Exit code 0 if every check passed.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 TIMEOUT = 180  # an AI turn may be waiting on a local LLM
 
@@ -82,6 +84,23 @@ def request(url: str, path: str, payload: dict | None = None, method: str | None
             return error.code, json.loads(body)
         except json.JSONDecodeError:
             return error.code, {"_raw": body}
+    except urllib.error.URLError as error:
+        raise CheckFailed(f"cannot reach {url}: {error.reason}") from error
+
+
+def fetch_bytes(url: str, path: str, headers: dict | None = None):
+    """A raw GET. The engine artifact is not JSON, so it cannot go through `request`."""
+    req = urllib.request.Request(
+        url.rstrip("/") + path,
+        headers={k: v for k, v in (headers or {}).items() if v},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as response:
+            return response.read(), dict(response.headers), response.status
+    except urllib.error.HTTPError as error:
+        # A 304 is the answer we are looking for on the second fetch, not a failure.
+        return error.read(), dict(error.headers), error.code
     except urllib.error.URLError as error:
         raise CheckFailed(f"cannot reach {url}: {error.reason}") from error
 
@@ -371,6 +390,172 @@ def check_learning(url: str, report: Report, before: dict) -> None:
               "post-match training may be queued or disabled")
 
 
+def check_engine_distribution(url: str, report: Report) -> dict:
+    """The three endpoints offline mode is built on, read exactly as the phone reads them.
+
+    This is the check that would have caught every serialisation mistake worth catching: the
+    manifest has to describe the artifact, the artifact has to be the size the manifest promised,
+    and the header the client parses has to account for every byte after it.
+    """
+    report.section("Engine distribution")
+
+    status, manifest = request(url, "/api/ai/engine/manifest/")
+    if not report.check("manifest is 200", status == 200, f"got {status}"):
+        return {}
+
+    problem = has_keys(manifest, "ok", "format", "version", "architecture", "feature_size",
+                       "elo", "games_trained", "size_bytes", "checksum", "url")
+    report.check("manifest payload", not problem, problem)
+
+    blob, headers, code = fetch_bytes(url, "/api/ai/engine/download/")
+    report.check("download is 200", code == 200, f"got {code}")
+    report.check(
+        "download is the size the manifest promised",
+        len(blob) == manifest.get("size_bytes"),
+        f"{len(blob)} bytes against {manifest.get('size_bytes')}",
+    )
+    report.check(
+        "download matches its checksum",
+        hashlib.sha256(blob).hexdigest() == manifest.get("checksum"),
+        "sha256 disagreed - a truncated body or a caching proxy",
+    )
+    report.check("artifact is CFE1", blob[:4] == b"CFE1", f"magic was {blob[:4]!r}")
+    report.check(
+        "download names its version in a header",
+        headers.get("X-Engine-Version") == str(manifest.get("version")),
+        f"header said {headers.get('X-Engine-Version')}",
+    )
+
+    # Parse the header the way the Kotlin reader does, and account for the payload exactly.
+    if len(blob) > 8 and blob[:4] == b"CFE1":
+        header_length = int.from_bytes(blob[4:8], "little")
+        try:
+            header = json.loads(blob[8:8 + header_length])
+        except (ValueError, UnicodeDecodeError) as error:
+            report.fail("artifact header parses", str(error))
+            return manifest
+
+        layers = header.get("layers", [])
+        expected = sum(a * b for a, b in zip(layers, layers[1:])) + sum(layers[1:])
+        actual = (len(blob) - 8 - header_length) // 4
+
+        report.check("artifact header parses", True)
+        report.check(
+            "the payload is exactly the parameters the header describes",
+            expected == actual and (len(blob) - 8 - header_length) % 4 == 0,
+            f"header implies {expected} floats, the payload holds {actual}",
+        )
+        report.check(
+            "the feature vector matches the architecture",
+            layers and layers[0] == header.get("feature_size"),
+            f"layers start at {layers[:1]}, feature_size is {header.get('feature_size')}",
+        )
+
+    # A second fetch quoting the ETag should cost nothing.
+    _, _, code = fetch_bytes(url, "/api/ai/engine/download/",
+                             headers={"If-None-Match": headers.get("ETag", "")})
+    report.check("a matching ETag gives a 304", code == 304, f"got {code}")
+
+    return manifest
+
+
+def check_offline_sync(url: str, report: Report, rng: random.Random) -> None:
+    """A phone emptying its outbox: one good game, one that cannot possibly replay."""
+    report.section("Offline sync")
+
+    player = str(uuid.uuid4())
+    moves = play_out_locally(url, report, rng)
+    if not moves:
+        return
+
+    status, body = request(url, "/api/ai/engine/sync/", {
+        "player_id": player,
+        "matches": [
+            {"local_id": "smoke-good", "difficulty": "hard", "moves": moves},
+            {"local_id": "smoke-bad", "moves": ["11-15", "9-14"]},
+        ],
+    })
+    report.check("sync is 200", status == 200, f"got {status}")
+    report.check("the good game imported", body.get("imported") == 1,
+                 f"imported {body.get('imported')}")
+    report.check(
+        "the impossible game was refused, not half-imported",
+        [r.get("local_id") for r in body.get("rejected", [])] == ["smoke-bad"],
+        f"rejected {body.get('rejected')}",
+    )
+    report.check(
+        "the response carries the current engine",
+        not has_keys(body.get("engine") or {}, "version", "checksum"),
+        "the device learns it is stale from this",
+    )
+
+    accepted = body.get("accepted", [])
+    report.check("the import names its match id", len(accepted) == 1 and accepted[0].get("match_id"),
+                 f"accepted {accepted}")
+
+    # Re-sending the same outbox is what a phone does when it loses the response.
+    status, again = request(url, "/api/ai/engine/sync/", {
+        "player_id": player,
+        "matches": [{"local_id": "smoke-good", "difficulty": "hard", "moves": moves}],
+    })
+    report.check("a re-sent outbox imports nothing", again.get("imported") == 0,
+                 f"imported {again.get('imported')} on the second call")
+    report.check(
+        "and says it was a duplicate",
+        (again.get("accepted") or [{}])[0].get("duplicate") is True,
+        "the client needs to know it can drop the game",
+    )
+
+    status, listing = request(url, f"/api/matches/?player_id={player}")
+    report.check("the imported game is an ordinary match", len(listing.get("matches", [])) == 1,
+                 f"got {len(listing.get('matches', []))}")
+
+    if listing.get("matches"):
+        match_id = listing["matches"][0]["match_id"]
+        status, detail = request(url, f"/api/match/{match_id}/")
+        report.check(
+            "every ply was replayed by the server's own engine",
+            len(detail.get("history", [])) == len(moves),
+            f"{len(detail.get('history', []))} plies stored against {len(moves)} sent",
+        )
+
+
+def play_out_locally(url: str, report: Report, rng: random.Random) -> list:
+    """A legal game, produced by asking the referee for legal moves and picking among them.
+
+    Deliberately not generated from a local engine: this harness is meant to speak only HTTP, so
+    the move list it later syncs is one the server itself vouched for move by move.
+    """
+    status, match = request(url, "/api/match/start/", {"difficulty": "easy"})
+    if not report.check("a scratch match started", status == 200, f"got {status}"):
+        return []
+
+    match_id = match["match_id"]
+    moves = []
+    legal = match.get("legal_moves", [])
+
+    for _ in range(24):
+        if not legal:
+            break
+        chosen = legal[rng.randrange(len(legal))]["notation"]
+        # Alternate through whichever endpoint owns the turn.
+        if len(moves) % 2 == 0:
+            status, body = request(url, "/api/match/move/",
+                                   {"match_id": match_id, "player_move": chosen})
+        else:
+            status, body = request(url, "/api/ai/generate-turn/", {"match_id": match_id})
+            chosen = body.get("ai_move", "")
+        if status != 200 or not chosen:
+            break
+        moves.append(chosen)
+        if body.get("game_over"):
+            break
+        legal = body.get("legal_moves", [])
+
+    report.check("the scratch game produced a move list", len(moves) >= 4, f"got {len(moves)}")
+    return moves
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://127.0.0.1:8000")
@@ -429,6 +614,8 @@ def main() -> int:
         )
 
         check_analytics(args.url, report)
+        check_engine_distribution(args.url, report)
+        check_offline_sync(args.url, report, rng)
         check_learning(args.url, report, before)
 
     except CheckFailed as error:

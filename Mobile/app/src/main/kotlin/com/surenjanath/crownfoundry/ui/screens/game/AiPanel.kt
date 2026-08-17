@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import com.surenjanath.crownfoundry.R
 import com.surenjanath.crownfoundry.api.EvaluationDto
 import com.surenjanath.crownfoundry.api.Side
+import com.surenjanath.crownfoundry.offline.Offline
+import com.surenjanath.crownfoundry.ui.components.OfflineBadge
 import com.surenjanath.crownfoundry.ui.components.ShimmerHost
 import com.surenjanath.crownfoundry.ui.components.themed.HeaderIconButton
 import com.surenjanath.crownfoundry.ui.components.themed.TextPlaceholder
@@ -136,6 +138,13 @@ fun AiPanel(
                                 text = state.difficulty.replaceFirstChar { it.uppercase() },
                                 style = typography.xxs.semiBold.copy(color = colorPalette.accent)
                             )
+                        }
+
+                        // Which brain is actually answering. The player is entitled to know they
+                        // are facing the phone rather than the referee - the two are the same
+                        // policy, but only one of them writes its reasoning in sentences.
+                        if (Offline.hybridOrNull?.isOffline == true) {
+                            OfflineBadge(versionLabel = Offline.engine.state.label)
                         }
                     }
 

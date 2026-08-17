@@ -22,6 +22,10 @@ class FakeCheckersApi : CheckersApi {
     var resignOutcome: Outcome<ResignDto> =
         Outcome.Success(ResignDto(gameOver = true, winner = Side.AI))
 
+    // Scriptable so the offline tests can make the referee unreachable without a socket.
+    var healthOutcome: Outcome<HealthDto> = Outcome.Success(HealthDto(ok = true))
+    var matchesOutcome: Outcome<MatchListDto> = Outcome.Success(MatchListDto())
+
     /** Consumed in order; the last entry repeats once the queue runs dry. */
     val moveOutcomes = ArrayDeque<Outcome<MoveResultDto>>()
     val aiOutcomes = ArrayDeque<Outcome<AiTurnDto>>()
@@ -40,7 +44,7 @@ class FakeCheckersApi : CheckersApi {
         Outcome.Success(Fixtures.afterHumanOpening())
     private var lastAiOutcome: Outcome<AiTurnDto> = Outcome.Success(Fixtures.aiReply())
 
-    override suspend fun health() = Outcome.Success(HealthDto(ok = true))
+    override suspend fun health() = healthOutcome
 
     override suspend fun startMatch(
         difficulty: String,
@@ -56,8 +60,7 @@ class FakeCheckersApi : CheckersApi {
         return matchOutcome
     }
 
-    override suspend fun matches(playerId: String?, limit: Int) =
-        Outcome.Success(MatchListDto())
+    override suspend fun matches(playerId: String?, limit: Int) = matchesOutcome
 
     override suspend fun playMove(matchId: String, move: String): Outcome<MoveResultDto> {
         movesSent += move

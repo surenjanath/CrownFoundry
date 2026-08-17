@@ -16,6 +16,11 @@ dependencyResolutionManagement {
 
             library("kotlin-coroutines","org.jetbrains.kotlinx", "kotlinx-coroutines-core").version("1.9.0")
 
+            // The on-device engine reads its own artifact header and persists offline matches;
+            // both are small JSON documents, and neither wants a whole HTTP stack behind it.
+            library("kotlinx-serialization-json", "org.jetbrains.kotlinx", "kotlinx-serialization-json")
+                .version("1.7.3")
+
             version("compose", "1.7.8")
             library("compose-foundation", "androidx.compose.foundation", "foundation").versionRef("compose")
             library("compose-ui", "androidx.compose.ui", "ui").versionRef("compose")
@@ -61,5 +66,6 @@ rootProject.name = "CrownFoundry"
 
 include(":app")
 include(":api")
+include(":engine")
 include(":compose-routing")
 include(":compose-persist")

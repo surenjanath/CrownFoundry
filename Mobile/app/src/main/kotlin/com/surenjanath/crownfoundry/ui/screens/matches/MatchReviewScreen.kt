@@ -41,6 +41,7 @@ import com.surenjanath.crownfoundry.LocalWindowInsets
 import com.surenjanath.crownfoundry.R
 import com.surenjanath.crownfoundry.api.ApiError
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
+import com.surenjanath.crownfoundry.offline.Offline
 import com.surenjanath.crownfoundry.api.Side
 import com.surenjanath.crownfoundry.ui.components.ShimmerHost
 import com.surenjanath.crownfoundry.ui.components.themed.Header
@@ -71,7 +72,7 @@ fun MatchReviewScreen(matchId: String) {
 
     val backendUrl by rememberPreference(backendUrlKey, defaultBackendUrl)
     var attempt by remember { mutableIntStateOf(0) }
-    val holder = remember(matchId) { ReviewStateHolder(CrownFoundryClient, matchId) }
+    val holder = remember(matchId) { ReviewStateHolder(Offline.api, matchId) }
 
     LaunchedEffect(matchId, backendUrl, attempt) {
         CrownFoundryClient.baseUrl = backendUrl

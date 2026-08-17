@@ -11,7 +11,7 @@ buildscript {
         // Since Kotlin 2.0 the Compose compiler ships with Kotlin itself and is applied as a
         // plugin, replacing the old composeOptions.kotlinCompilerExtensionVersion pinning.
         classpath("org.jetbrains.kotlin", "compose-compiler-gradle-plugin", libs.versions.kotlin.get())
-        // The :api module serialises the Django API's JSON with kotlinx.serialization.
+        // :api, :engine and :app all serialise JSON with kotlinx.serialization.
         classpath(kotlin("serialization", libs.versions.kotlin.get()))
     }
 }

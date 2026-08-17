@@ -56,7 +56,8 @@ fun SettingsScreen() {
                     Tab(0, "Appearance", R.drawable.color_palette)
                     Tab(1, "Game", R.drawable.shapes)
                     Tab(2, "Backend", R.drawable.server)
-                    Tab(3, "About", R.drawable.information)
+                    Tab(3, "Offline", R.drawable.brain)
+                    Tab(4, "About", R.drawable.information)
                 }
             ) { currentTabIndex ->
                 saveableStateHolder.SaveableStateProvider(currentTabIndex) {
@@ -64,7 +65,8 @@ fun SettingsScreen() {
                         0 -> AppearanceSettings()
                         1 -> GameSettings()
                         2 -> BackendSettings()
-                        3 -> About()
+                        3 -> OfflineSettings()
+                        4 -> About()
                     }
                 }
             }

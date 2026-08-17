@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,9 +41,11 @@ import com.surenjanath.crownfoundry.api.AnalyticsSummaryDto
 import com.surenjanath.crownfoundry.api.ApiError
 import com.surenjanath.crownfoundry.api.CheckersApi
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
+import com.surenjanath.crownfoundry.offline.Offline
 import com.surenjanath.crownfoundry.api.HealthDto
 import com.surenjanath.crownfoundry.api.Outcome
 import com.surenjanath.crownfoundry.enums.Difficulty
+import com.surenjanath.crownfoundry.ui.components.EngineCard
 import com.surenjanath.crownfoundry.ui.components.ShimmerHost
 import com.surenjanath.crownfoundry.ui.components.themed.Header
 import com.surenjanath.crownfoundry.ui.components.themed.PrimaryButton
@@ -65,6 +68,7 @@ import com.surenjanath.crownfoundry.utils.secondary
 import com.surenjanath.crownfoundry.utils.semiBold
 import java.util.UUID
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * The front door: start a game, or pick up the one you walked away from, and see who you are
@@ -82,10 +86,15 @@ fun PlayScreen(
     val backendUrl by rememberPreference(backendUrlKey, defaultBackendUrl)
 
     var attempt by remember { mutableIntStateOf(0) }
-    val holder = remember { PlayStateHolder(CrownFoundryClient) }
+    val holder = remember { PlayStateHolder(Offline.api) }
+    val scope = rememberCoroutineScope()
+    val playerId = rememberPlayerId()
 
     LaunchedEffect(backendUrl, attempt) {
         CrownFoundryClient.baseUrl = backendUrl
+        // A base URL that has just changed is a referee that has just become reachable, or a
+        // different one entirely. Either way the engine's staleness is worth re-checking.
+        Offline.synchroniseInBackground(playerId)
 
         // A poll rather than a one-shot: the opponent keeps training while this screen is open,
         // and self-play moves these numbers without the reader touching anything.
@@ -202,6 +211,15 @@ fun PlayScreen(
         OpponentCard(
             state = state,
             onClick = onSeeInsights
+        )
+
+        SectionLabel(text = "OFFLINE PLAY")
+
+        EngineCard(
+            state = Offline.engine.state,
+            onUpdate = {
+                scope.launch { Offline.synchronise(playerId, force = true) }
+            }
         )
 
         SectionLabel(text = "BACKEND")
