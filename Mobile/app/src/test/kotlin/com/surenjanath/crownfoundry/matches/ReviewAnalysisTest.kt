@@ -14,6 +14,8 @@ import com.surenjanath.crownfoundry.engine.QualityThresholds
 import com.surenjanath.crownfoundry.engine.ScoredMove
 import com.surenjanath.crownfoundry.engine.WHITE
 import com.surenjanath.crownfoundry.game.FakeCheckersApi
+import com.surenjanath.crownfoundry.offline.PASS_AND_PLAY_DIFFICULTY
+import com.surenjanath.crownfoundry.offline.PuzzleStore
 import com.surenjanath.crownfoundry.game.Fixtures
 import com.surenjanath.crownfoundry.ui.screens.matches.MatchAnalyser
 import com.surenjanath.crownfoundry.ui.screens.matches.PdnExport
@@ -249,6 +251,62 @@ class ReviewAnalysisTest {
         holder.analyse()
 
         assertEquals(1, calls)
+    }
+
+    // --- puzzles mined from the game ------------------------------------------------------------
+
+    @Test
+    fun `your blunders become puzzles`() = runTest {
+        val directory = tempDirectory()
+        val puzzles = PuzzleStore(java.io.File(directory, "puzzles.json"))
+
+        val analysis = analysisOf(
+            scored(1, BLACK, "11-15", "11-15", 0f),
+            scored(2, WHITE, "23-19", "22-17", 4f),
+            scored(3, BLACK, "8-11", "9-14", 3.2f)
+        )
+
+        val api = FakeCheckersApi().apply { matchOutcome = Outcome.Success(match()) }
+        val holder = ReviewStateHolder(api, "match-1", { _, _ -> analysis }, puzzles)
+
+        holder.load()
+        holder.analyse()
+
+        val stored = puzzles.all()
+        // Only Black's blunder. White's was the bigger loss, but it is not the player's to practise.
+        assertEquals(1, stored.size)
+        assertEquals("9-14", stored.first().best)
+        assertEquals("8-11", stored.first().played)
+        assertEquals("match-1", stored.first().matchId)
+        assertEquals(1, holder.collected)
+
+        directory.deleteRecursively()
+    }
+
+    @Test
+    fun `a pass-and-play game contributes no puzzles`() = runTest {
+        val directory = tempDirectory()
+        val puzzles = PuzzleStore(java.io.File(directory, "puzzles.json"))
+
+        val analysis = analysisOf(scored(1, BLACK, "8-11", "9-14", 3.2f))
+        val passAndPlay = match().copy(difficulty = PASS_AND_PLAY_DIFFICULTY)
+        val api = FakeCheckersApi().apply { matchOutcome = Outcome.Success(passAndPlay) }
+        val holder = ReviewStateHolder(api, "match-1", { _, _ -> analysis }, puzzles)
+
+        holder.load()
+        holder.analyse()
+
+        // Two people played this. "Your mistakes" is not a thing this game has.
+        assertTrue(puzzles.all().isEmpty())
+        assertEquals(0, holder.collected)
+
+        directory.deleteRecursively()
+    }
+
+    private fun tempDirectory() = java.io.File.createTempFile("crownfoundry", "review").let {
+        it.delete()
+        it.mkdirs()
+        it
     }
 
     // --- what the player is told -------------------------------------------------------------

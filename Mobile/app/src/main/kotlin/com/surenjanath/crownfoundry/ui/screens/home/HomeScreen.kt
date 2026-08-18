@@ -19,6 +19,9 @@ import com.surenjanath.crownfoundry.ui.screens.globalRoutes
 import com.surenjanath.crownfoundry.ui.screens.insights.InsightsScreen
 import com.surenjanath.crownfoundry.ui.screens.matches.MatchReviewScreen
 import com.surenjanath.crownfoundry.ui.screens.matches.MatchesScreen
+import com.surenjanath.crownfoundry.ui.screens.puzzleRoute
+import com.surenjanath.crownfoundry.ui.screens.puzzles.PuzzleScreen
+import com.surenjanath.crownfoundry.ui.screens.puzzles.PuzzlesScreen
 import com.surenjanath.crownfoundry.ui.screens.reviewRoute
 import com.surenjanath.crownfoundry.ui.screens.settings.SettingsScreen
 import com.surenjanath.crownfoundry.ui.screens.settingsRoute
@@ -54,6 +57,10 @@ fun HomeScreen() {
             MatchReviewScreen(matchId = matchId)
         }
 
+        puzzleRoute { puzzleId ->
+            PuzzleScreen(puzzleId = puzzleId)
+        }
+
         host {
             val (tabIndex, onTabChanged) = rememberPreference(
                 homeScreenTabIndexKey,
@@ -68,7 +75,8 @@ fun HomeScreen() {
                 tabColumnContent = { Tab ->
                     Tab(0, "Play", R.drawable.sparkles)
                     Tab(1, "Matches", R.drawable.time)
-                    Tab(2, "Insights", R.drawable.trending)
+                    Tab(2, "Puzzles", R.drawable.shapes)
+                    Tab(3, "Insights", R.drawable.trending)
                 }
             ) { currentTabIndex ->
                 saveableStateHolder.SaveableStateProvider(key = currentTabIndex) {
@@ -79,7 +87,7 @@ fun HomeScreen() {
                             onResume = { matchId, passAndPlay ->
                                 gameRoute.global(matchId, passAndPlay)
                             },
-                            onSeeInsights = { onTabChanged(2) }
+                            onSeeInsights = { onTabChanged(3) }
                         )
 
                         1 -> MatchesScreen(
@@ -89,7 +97,11 @@ fun HomeScreen() {
                             }
                         )
 
-                        2 -> InsightsScreen()
+                        2 -> PuzzlesScreen(
+                            onOpenPuzzle = { puzzleId -> puzzleRoute.global(puzzleId) }
+                        )
+
+                        3 -> InsightsScreen()
                     }
                 }
             }

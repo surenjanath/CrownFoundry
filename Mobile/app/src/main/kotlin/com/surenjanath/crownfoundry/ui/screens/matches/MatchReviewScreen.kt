@@ -197,6 +197,7 @@ fun MatchReviewScreen(matchId: String) {
                     analysis = analysis,
                     plyIndex = state.plyIndex,
                     passAndPlay = isPassAndPlay(state.match?.difficulty),
+                    collected = holder.collected,
                     onSeekPly = holder::seek
                 )
 
@@ -460,6 +461,7 @@ private fun AnalysisSection(
     analysis: ReviewAnalysis,
     plyIndex: Int,
     passAndPlay: Boolean,
+    collected: Int,
     onSeekPly: (Int) -> Unit
 ) {
     val (colorPalette, typography) = LocalAppearance.current
@@ -526,6 +528,14 @@ private fun AnalysisSection(
         }
 
         BasicText(text = summary.detail, style = typography.xxs.secondary)
+
+        if (collected > 0) {
+            BasicText(
+                text = "$collected new ${if (collected == 1) "puzzle" else "puzzles"} from this " +
+                    "game are waiting in Puzzles.",
+                style = typography.xxs.medium.color(colorPalette.accent)
+            )
+        }
 
         summary.turningPoint?.let { move ->
             SecondaryTextButton(

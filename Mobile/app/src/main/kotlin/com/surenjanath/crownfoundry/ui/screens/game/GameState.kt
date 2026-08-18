@@ -19,7 +19,8 @@ import com.surenjanath.crownfoundry.ui.components.board.BoardAnimation
 import com.surenjanath.crownfoundry.ui.components.board.BoardSelection
 import com.surenjanath.crownfoundry.ui.components.board.BoardTrace
 import com.surenjanath.crownfoundry.ui.components.board.MoveTree
-import com.surenjanath.crownfoundry.ui.components.board.SelectionStep
+import com.surenjanath.crownfoundry.ui.components.board.TapResult
+import com.surenjanath.crownfoundry.ui.components.board.resolveTap
 
 enum class GamePhase {
     /** Nothing asked of the referee yet. */
@@ -82,17 +83,6 @@ data class PieceCounts(
             whiteKings = pieces.count { it.isWhite && it.king }
         )
     }
-}
-
-/** What a tap on the board turned out to mean. */
-sealed interface TapResult {
-    data object Ignored : TapResult
-    data object Cleared : TapResult
-    data class Selected(val selection: BoardSelection) : TapResult
-    data class Advanced(val selection: BoardSelection) : TapResult
-
-    /** The move is complete and ready to send, as one canonical notation string. */
-    data class Ready(val notation: String) : TapResult
 }
 
 /**
@@ -397,55 +387,16 @@ class GameState(
     fun tap(square: Int): TapResult {
         if (!acceptsTaps) return TapResult.Ignored
 
-        val current = selection
+        val result = resolveTap(legalMoves, selection, square)
 
-        if (current != null) {
-            when (val step = current.advance(square)) {
-                is SelectionStep.Continued -> {
-                    selection = step.selection
-                    return TapResult.Advanced(step.selection)
-                }
-
-                is SelectionStep.Completed -> {
-                    selection = null
-                    return TapResult.Ready(step.move.notation)
-                }
-
-                SelectionStep.Rejected -> {
-                    // Mid-jump the only way out is back through the square you are standing on:
-                    // half a jump is not a move, so nothing else may be offered.
-                    if (current.isMidJump) {
-                        return if (square == current.square || square == current.origin) {
-                            selection = null
-                            TapResult.Cleared
-                        } else {
-                            TapResult.Ignored
-                        }
-                    }
-
-                    if (square == current.origin) {
-                        selection = null
-                        return TapResult.Cleared
-                    }
-                }
-            }
+        selection = when (result) {
+            is TapResult.Selected -> result.selection
+            is TapResult.Advanced -> result.selection
+            is TapResult.Cleared, is TapResult.Ready -> null
+            is TapResult.Ignored -> selection
         }
 
-        val next = MoveTree.begin(legalMoves, square)
-
-        return when {
-            next != null -> {
-                selection = next
-                TapResult.Selected(next)
-            }
-
-            current != null -> {
-                selection = null
-                TapResult.Cleared
-            }
-
-            else -> TapResult.Ignored
-        }
+        return result
     }
 
     // --- internals -------------------------------------------------------------------------------

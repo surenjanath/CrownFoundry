@@ -8,6 +8,12 @@ import com.surenjanath.crownfoundry.api.CheckersApi
 import com.surenjanath.crownfoundry.api.MatchDto
 import com.surenjanath.crownfoundry.api.Outcome
 import com.surenjanath.crownfoundry.api.Side
+import com.surenjanath.crownfoundry.engine.BLACK
+import com.surenjanath.crownfoundry.engine.GameAnalysis
+import com.surenjanath.crownfoundry.engine.puzzleSeedsFrom
+import com.surenjanath.crownfoundry.offline.Offline
+import com.surenjanath.crownfoundry.offline.PuzzleStore
+import com.surenjanath.crownfoundry.offline.toEngineRules
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -107,7 +113,8 @@ fun reviewHeadline(match: MatchDto): String {
 class ReviewStateHolder(
     private val api: CheckersApi,
     private val matchId: String,
-    private val analyser: MatchAnalyser = EngineMatchAnalyser
+    private val analyser: MatchAnalyser = EngineMatchAnalyser,
+    private val puzzles: PuzzleStore? = Offline.puzzles
 ) {
     var state by mutableStateOf(ReviewState())
         private set
@@ -116,9 +123,14 @@ class ReviewStateHolder(
     var analysis by mutableStateOf<ReviewAnalysis>(ReviewAnalysis.Idle)
         private set
 
+    /** How many new puzzles this game contributed, so the screen can say it did. */
+    var collected by mutableStateOf(0)
+        private set
+
     suspend fun load() {
         state = state.copy(isLoading = true, error = null)
         analysis = ReviewAnalysis.Idle
+        collected = 0
 
         state = when (val outcome = api.match(matchId)) {
             is Outcome.Success -> {
@@ -190,8 +202,27 @@ class ReviewStateHolder(
                 "The engine found no positions to score in this game."
             )
 
-            else -> ReviewAnalysis.Ready(scored)
+            else -> {
+                collectPuzzles(match, scored)
+                ReviewAnalysis.Ready(scored)
+            }
         }
+    }
+
+    /**
+     * Turn this game's mistakes into practice.
+     *
+     * Only your own, and only from a game you played against the engine: in pass-and-play the two
+     * sides are two different people, and "your mistakes" is not a thing that game has.
+     */
+    private suspend fun collectPuzzles(match: MatchDto, scored: GameAnalysis) {
+        val store = puzzles ?: return
+        if (isPassAndPlay(match.difficulty)) return
+
+        collected = store.collect(
+            seeds = puzzleSeedsFrom(scored, BLACK, match.rules.toEngineRules()),
+            matchId = match.matchId
+        )
     }
 
     fun seek(index: Int) {

@@ -20,6 +20,9 @@ val gameRoute = Route2<String?, Boolean>("gameRoute")
 /** A finished match, replayed ply by ply. */
 val reviewRoute = Route1<String>("reviewRoute")
 
+/** One position from a game you got wrong, to be got right. */
+val puzzleRoute = Route1<String>("puzzleRoute")
+
 val settingsRoute = Route0("settingsRoute")
 
 @SuppressLint("ComposableNaming")

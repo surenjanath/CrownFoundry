@@ -8,7 +8,7 @@ import com.surenjanath.crownfoundry.api.Side
 import com.surenjanath.crownfoundry.ui.screens.game.GamePhase
 import com.surenjanath.crownfoundry.ui.screens.game.GameState
 import com.surenjanath.crownfoundry.ui.screens.game.RetryAction
-import com.surenjanath.crownfoundry.ui.screens.game.TapResult
+import com.surenjanath.crownfoundry.ui.components.board.TapResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

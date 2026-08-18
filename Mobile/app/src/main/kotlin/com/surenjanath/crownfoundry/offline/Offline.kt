@@ -26,6 +26,7 @@ object Offline {
     private var passAndPlayApi: PassAndPlayApi? = null
     private var sync: EngineSync? = null
     private var store: LocalMatchStore? = null
+    private var puzzleStore: PuzzleStore? = null
     private var preferences: EnginePreferences? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -48,6 +49,9 @@ object Offline {
 
     val matches: LocalMatchStore? get() = store
 
+    /** The positions the player got wrong, collected when a game is reviewed. */
+    val puzzles: PuzzleStore? get() = puzzleStore
+
     val settings: EnginePreferences? get() = preferences
 
     fun initialise(context: Context) {
@@ -63,6 +67,7 @@ object Offline {
 
         preferences = enginePreferences
         store = matchStore
+        puzzleStore = PuzzleStore(context)
         passAndPlayApi = PassAndPlayApi(offline)
         hybrid = HybridCheckersApi(
             remote = CrownFoundryClient,

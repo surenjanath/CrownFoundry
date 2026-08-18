@@ -94,3 +94,56 @@ sealed interface SelectionStep {
     data class Completed(val move: MoveDto) : SelectionStep
     data object Rejected : SelectionStep
 }
+
+/** What a tap on the board turned out to mean. */
+sealed interface TapResult {
+    data object Ignored : TapResult
+    data object Cleared : TapResult
+    data class Selected(val selection: BoardSelection) : TapResult
+    data class Advanced(val selection: BoardSelection) : TapResult
+
+    /** The move is complete and ready to send, as one canonical notation string. */
+    data class Ready(val notation: String) : TapResult
+}
+
+/**
+ * One tap, resolved against the moves that are actually legal.
+ *
+ * Lives here rather than in the game screen because a board is a board: the live game and a puzzle
+ * both have to answer "what did that finger mean", and two copies of this would be two chances to
+ * let a half-played jump escape. [current] is the selection in progress, or null for none.
+ */
+fun resolveTap(
+    legalMoves: List<MoveDto>,
+    current: BoardSelection?,
+    square: Int
+): TapResult {
+    if (current != null) {
+        when (val step = current.advance(square)) {
+            is SelectionStep.Continued -> return TapResult.Advanced(step.selection)
+            is SelectionStep.Completed -> return TapResult.Ready(step.move.notation)
+
+            SelectionStep.Rejected -> {
+                // Mid-jump the only way out is back through the square you are standing on:
+                // half a jump is not a move, so nothing else may be offered.
+                if (current.isMidJump) {
+                    return if (square == current.square || square == current.origin) {
+                        TapResult.Cleared
+                    } else {
+                        TapResult.Ignored
+                    }
+                }
+
+                if (square == current.origin) return TapResult.Cleared
+            }
+        }
+    }
+
+    val next = MoveTree.begin(legalMoves, square)
+
+    return when {
+        next != null -> TapResult.Selected(next)
+        current != null -> TapResult.Cleared
+        else -> TapResult.Ignored
+    }
+}
