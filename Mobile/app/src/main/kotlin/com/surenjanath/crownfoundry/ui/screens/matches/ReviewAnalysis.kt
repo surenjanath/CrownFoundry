@@ -134,6 +134,10 @@ data class AnalysisSummary(
     val blackLabel get() = if (passAndPlay) "Black" else "you"
     val whiteLabel get() = if (passAndPlay) "White" else "it"
 
+    /** For labelling something as belonging to a side - "your accuracy", "Black's accuracy". */
+    val blackPossessive get() = if (passAndPlay) "Black's" else "your"
+    val whitePossessive get() = if (passAndPlay) "White's" else "its"
+
     val headline: String
         get() = if (passAndPlay) {
             "Black played $accuracy% accurately, White played $opponentAccuracy%."

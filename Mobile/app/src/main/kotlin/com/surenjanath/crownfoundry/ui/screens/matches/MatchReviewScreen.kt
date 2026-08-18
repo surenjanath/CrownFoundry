@@ -488,16 +488,17 @@ private fun AnalysisSection(
 
         BasicText(text = summary.headline, style = typography.xs.secondary)
 
-        // Positive is Black, and Black is the player - so above the line is you winning.
+        // Ground given away, running total. Falling means Black gave it away, rising means White
+        // did. Not a plot of who is winning - see GameAnalysis.swingSeries for why there isn't one.
         LineChart(
             series = listOf(
                 ChartSeries(
-                    values = ready.analysis.evaluationSeries,
+                    values = ready.analysis.swingSeries,
                     color = colorPalette.accent,
                     filled = true
                 )
             ),
-            referenceLine = ReferenceLine(value = 0f, label = "even"),
+            referenceLine = ReferenceLine(value = 0f, label = "level"),
             tickDecimals = 1,
             startLabel = "opening",
             endLabel = "end",
@@ -505,22 +506,28 @@ private fun AnalysisSection(
             modifier = Modifier.fillMaxWidth()
         )
 
+        BasicText(
+            text = "Ground given away, move by move. It falls when ${summary.blackLabel} gave " +
+                "something up and rises when ${summary.whiteLabel} did.",
+            style = typography.xxs.secondary
+        )
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatTile(
-                label = "${summary.blackLabel} accuracy",
+                label = "${summary.blackPossessive} accuracy",
                 value = "${summary.accuracy}%",
                 accented = true,
                 modifier = Modifier.weight(1f)
             )
 
             StatTile(
-                label = "${summary.whiteLabel} accuracy",
+                label = "${summary.whitePossessive} accuracy",
                 value = "${summary.opponentAccuracy}%",
                 modifier = Modifier.weight(1f)
             )
 
             StatTile(
-                label = "${summary.blackLabel} errors",
+                label = "${summary.blackPossessive} errors",
                 value = "${summary.mistakes + summary.blunders}",
                 detail = if (summary.blunders > 0) "${summary.blunders} blunder" else null,
                 modifier = Modifier.weight(1f)
@@ -531,8 +538,11 @@ private fun AnalysisSection(
 
         if (collected > 0) {
             BasicText(
-                text = "$collected new ${if (collected == 1) "puzzle" else "puzzles"} from this " +
-                    "game are waiting in Puzzles.",
+                text = if (collected == 1) {
+                    "1 new puzzle from this game is waiting in Puzzles."
+                } else {
+                    "$collected new puzzles from this game are waiting in Puzzles."
+                },
                 style = typography.xxs.medium.color(colorPalette.accent)
             )
         }

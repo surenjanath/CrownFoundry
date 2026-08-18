@@ -16,11 +16,17 @@ import kotlinx.coroutines.ensureActive
  *
  * * **The risk bonus is off.** It is a style preference, not an evaluation, and reporting "this
  *   move was worth 1.4" with a boldness nudge baked in would be lying about what the number means.
- * * **The evaluation is read off the search that was already run.** Scoring a move produces the
- *   value of the position it leads to from the *mover's* perspective, so flipping the sign for
- *   White gives a whole-game curve for free. The encoder is perspective-symmetric but the learned
- *   value head is not exactly antisymmetric, so the curve is a faithful indicator of who stands
- *   better rather than a quantity you could arbitrage against a second opinion.
+ * * **Only differences within one position are reported.** The value head's absolute output is not
+ *   usable as a position evaluation and nothing here pretends otherwise. Measured against the
+ *   shipped policy, the opening scores +8.8 "for Black" *and* +9.0 "for White", and every position
+ *   in a real game sits within a point of that from either side: the head was trained toward
+ *   terminal targets of plus or minus ten and has collapsed onto the positive end. Asking it who
+ *   stands better returns "whoever you asked about".
+ *
+ *   Subtracting two of its numbers *in the same position* is sound, because the offset is common
+ *   to both, and that is exactly what [AnalysedMove.loss] is. So loss is the only quantity here,
+ *   and [GameAnalysis.swingSeries] - the running total of ground each side gave away - is the only
+ *   curve, rather than a plot of absolute values that would be a sawtooth with no meaning.
  */
 
 enum class MoveQuality(val label: String) {
@@ -68,8 +74,6 @@ data class AnalysedMove(
     /** How much the played move gave up against [best]. Never negative. */
     val loss: Float,
     val quality: MoveQuality,
-    /** After the move, from Black's point of view: positive means Black stands better. */
-    val evaluation: Float,
     /** The engine's shortlist, best first, for "what else was there?". */
     val alternatives: List<ScoredMove>
 ) {
@@ -78,17 +82,27 @@ data class AnalysedMove(
 
 data class GameAnalysis(
     val moves: List<AnalysedMove>,
-    /** Black's evaluation of the opening position, so the curve starts somewhere honest. */
-    val openingEvaluation: Float,
     val depth: Int
 ) {
     val isEmpty get() = moves.isEmpty()
 
-    /** The opening, then one point per ply. Positive means Black is better. */
-    val evaluationSeries: List<Float>
+    /**
+     * The game as a running total of ground given away: zero at the opening, then one point per
+     * ply. Rising means White has been the one losing ground, falling means Black has.
+     *
+     * Built only from [AnalysedMove.loss], which is a difference taken inside a single position -
+     * the one thing the value head measures reliably. It is a curve of *who has been playing
+     * better*, not of who is winning, and the two are different questions; this is the one the
+     * engine can answer honestly.
+     */
+    val swingSeries: List<Float>
         get() = buildList(moves.size + 1) {
-            add(openingEvaluation)
-            moves.forEach { add(it.evaluation) }
+            var swing = 0f
+            add(0f)
+            for (move in moves) {
+                swing += if (move.side == BLACK) -move.loss else move.loss
+                add(swing)
+            }
         }
 
     fun movesBy(side: Int) = moves.filter { it.side == side }
@@ -136,13 +150,10 @@ class GameAnalyser(
         plies: List<Ply>,
         onProgress: ((done: Int, total: Int) -> Unit)? = null
     ): GameAnalysis {
-        if (plies.isEmpty()) return GameAnalysis(emptyList(), 0f, depth)
+        if (plies.isEmpty()) return GameAnalysis(emptyList(), depth)
 
         val agent = LocalAgent(net, Knobs(depth, epsilon = 0f, risk = 0.5f, topK = alternatives + 1, nodeBudget))
         val analysed = ArrayList<AnalysedMove>(plies.size)
-
-        val opening = plies.first().board
-        val openingEvaluation = agent.evaluate(opening, BLACK, depth)
 
         for ((index, ply) in plies.withIndex()) {
             currentCoroutineContext().ensureActive()
@@ -158,9 +169,10 @@ class GameAnalyser(
                 // inventing one.
                 ?: best
 
+            // Both values come from the same search of the same position, so the offset the
+            // value head carries cancels and the difference is meaningful even though neither
+            // number is.
             val loss = (best.value - played.value).coerceAtLeast(0f)
-            // The search scores from the mover's point of view; Black's curve is White's negated.
-            val evaluation = if (ply.side == BLACK) played.value else -played.value
 
             analysed.add(
                 AnalysedMove(
@@ -171,7 +183,6 @@ class GameAnalyser(
                     best = best.move.notation(),
                     loss = loss,
                     quality = QualityThresholds.of(loss),
-                    evaluation = evaluation,
                     alternatives = scored.take(alternatives).map {
                         ScoredMove(it.move.notation(), round4(it.value))
                     }
@@ -181,7 +192,7 @@ class GameAnalyser(
             onProgress?.invoke(index + 1, plies.size)
         }
 
-        return GameAnalysis(analysed, openingEvaluation, depth)
+        return GameAnalysis(analysed, depth)
     }
 
     private fun round4(value: Float) = Math.round(value * 10000f) / 10000f

@@ -82,12 +82,11 @@ class ReviewAnalysisTest {
         best = best,
         loss = loss,
         quality = QualityThresholds.of(loss),
-        evaluation = 0f,
         alternatives = listOf(ScoredMove(best, 1f), ScoredMove(notation, 1f - loss))
     )
 
     private fun analysisOf(vararg moves: AnalysedMove) =
-        GameAnalysis(moves.toList(), openingEvaluation = 0f, depth = 4)
+        GameAnalysis(moves.toList(), depth = 4)
 
     // --- replay ---------------------------------------------------------------------------
 
