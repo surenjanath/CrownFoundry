@@ -9,6 +9,7 @@ import com.surenjanath.crownfoundry.api.MatchDto
 import com.surenjanath.crownfoundry.api.Outcome
 import com.surenjanath.crownfoundry.api.Side
 import com.surenjanath.crownfoundry.enums.Difficulty
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * A finished match, taken apart into positions you can step through.
@@ -104,13 +105,19 @@ fun reviewHeadline(match: MatchDto): String {
 
 class ReviewStateHolder(
     private val api: CheckersApi,
-    private val matchId: String
+    private val matchId: String,
+    private val analyser: MatchAnalyser = EngineMatchAnalyser
 ) {
     var state by mutableStateOf(ReviewState())
         private set
 
+    /** Kept apart from [state] so a slow analysis never redraws the board it is analysing. */
+    var analysis by mutableStateOf<ReviewAnalysis>(ReviewAnalysis.Idle)
+        private set
+
     suspend fun load() {
         state = state.copy(isLoading = true, error = null)
+        analysis = ReviewAnalysis.Idle
 
         state = when (val outcome = api.match(matchId)) {
             is Outcome.Success -> {
@@ -130,6 +137,59 @@ class ReviewStateHolder(
                 isLoading = false,
                 error = outcome.reason
             )
+        }
+    }
+
+    /**
+     * Score every move of the loaded match.
+     *
+     * Safe to call repeatedly - the screen calls it from a `LaunchedEffect` that restarts on
+     * rotation - because a run already going or already finished is left alone. Cancellation is
+     * rethrown rather than reported: a player who left the screen is not owed an error.
+     */
+    suspend fun analyse() {
+        val match = state.match ?: return
+        if (analysis is ReviewAnalysis.Running || analysis is ReviewAnalysis.Ready) return
+
+        if (match.history.isEmpty()) {
+            analysis = ReviewAnalysis.Unavailable("No moves were played, so there is nothing to score.")
+            return
+        }
+
+        val plies = replayOf(match)
+        if (plies.isEmpty()) {
+            analysis = ReviewAnalysis.Unavailable(
+                "These moves could not be replayed under this match's rules, so they cannot be scored."
+            )
+            return
+        }
+
+        analysis = ReviewAnalysis.Running(0, plies.size)
+
+        val scored = try {
+            analyser.analyse(plies) { done, total ->
+                analysis = ReviewAnalysis.Running(done, total)
+            }
+        } catch (cancellation: CancellationException) {
+            analysis = ReviewAnalysis.Idle
+            throw cancellation
+        } catch (failure: Exception) {
+            analysis = ReviewAnalysis.Failed(
+                "The engine could not score this game (${failure.message ?: "unknown error"})."
+            )
+            return
+        }
+
+        analysis = when {
+            scored == null -> ReviewAnalysis.Unavailable(
+                "Download the engine in Settings to have your moves scored."
+            )
+
+            scored.isEmpty -> ReviewAnalysis.Unavailable(
+                "The engine found no positions to score in this game."
+            )
+
+            else -> ReviewAnalysis.Ready(scored)
         }
     }
 

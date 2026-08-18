@@ -324,9 +324,19 @@ class OfflineLearner(
     }
 }
 
-/** Rebuild the plies of a game from its move list. Empty for anything that does not replay. */
-fun replayMoves(moves: List<String>, rules: VariantRules = VariantRules.DEFAULT): List<Ply> {
-    var board = Board.initial(rules)
+/**
+ * Rebuild the plies of a game from its move list. Empty for anything that does not replay.
+ *
+ * [from] is the position the move list starts at, which is the opening for every game this app
+ * plays. Review takes the stored one instead of assuming: a game set up from a position would
+ * otherwise replay against the wrong board and report every move as a blunder.
+ */
+fun replayMoves(
+    moves: List<String>,
+    rules: VariantRules = VariantRules.DEFAULT,
+    from: Board = Board.initial(rules)
+): List<Ply> {
+    var board = from
     val plies = ArrayList<Ply>(moves.size)
     for (notation in moves) {
         val move = try {

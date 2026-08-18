@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.surenjanath.crownfoundry.LocalWindowInsets
@@ -43,7 +44,13 @@ import com.surenjanath.crownfoundry.api.ApiError
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
 import com.surenjanath.crownfoundry.offline.Offline
 import com.surenjanath.crownfoundry.api.Side
+import com.surenjanath.crownfoundry.engine.AnalysedMove
+import com.surenjanath.crownfoundry.engine.MoveQuality
 import com.surenjanath.crownfoundry.ui.components.ShimmerHost
+import com.surenjanath.crownfoundry.ui.components.charts.ChartSeries
+import com.surenjanath.crownfoundry.ui.components.charts.LineChart
+import com.surenjanath.crownfoundry.ui.components.charts.ReferenceLine
+import com.surenjanath.crownfoundry.ui.components.charts.StatTile
 import com.surenjanath.crownfoundry.ui.components.themed.Header
 import com.surenjanath.crownfoundry.ui.components.themed.HeaderIconButton
 import com.surenjanath.crownfoundry.ui.components.themed.IconButton
@@ -70,6 +77,8 @@ fun MatchReviewScreen(matchId: String) {
     val (colorPalette, typography) = LocalAppearance.current
     val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
 
+    val context = LocalContext.current
+
     val backendUrl by rememberPreference(backendUrlKey, defaultBackendUrl)
     var attempt by remember { mutableIntStateOf(0) }
     val holder = remember(matchId) { ReviewStateHolder(Offline.api, matchId) }
@@ -80,6 +89,13 @@ fun MatchReviewScreen(matchId: String) {
     }
 
     val state = holder.state
+    val analysis = holder.analysis
+
+    // Scoring starts as soon as there is a game to score, and stops the moment this screen leaves
+    // composition - a player who backed out is not charged for the rest of the search.
+    LaunchedEffect(state.match?.matchId, state.match?.history?.size) {
+        if (state.match != null) holder.analyse()
+    }
 
     Column(
         modifier = Modifier
@@ -93,6 +109,17 @@ fun MatchReviewScreen(matchId: String) {
             )
     ) {
         Header(title = "Review") {
+            HeaderIconButton(
+                icon = R.drawable.share_social,
+                color = if (PdnExport.isExportable(state.match)) {
+                    colorPalette.text
+                } else {
+                    colorPalette.textDisabled
+                },
+                enabled = PdnExport.isExportable(state.match),
+                onClick = { state.match?.let { PdnExport.share(context, it) } }
+            )
+
             HeaderIconButton(
                 icon = R.drawable.chevron_back,
                 color = colorPalette.text,
@@ -158,7 +185,15 @@ fun MatchReviewScreen(matchId: String) {
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                PlyDetail(ply = ply)
+                PlyDetail(ply = ply, scored = analysis.moveAt(state.plyIndex))
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                AnalysisSection(
+                    analysis = analysis,
+                    plyIndex = state.plyIndex,
+                    onSeekPly = holder::seek
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -272,8 +307,36 @@ private fun Scrubber(
     }
 }
 
+/**
+ * The engine's opinion of one move, coloured by how much it cost.
+ *
+ * The label carries the judgement and the colour only reinforces it, so the screen still reads
+ * correctly to someone who cannot tell the accent from the red.
+ */
 @Composable
-private fun PlyDetail(ply: ReviewPly?) {
+private fun QualityLine(scored: AnalysedMove) {
+    val (colorPalette, typography) = LocalAppearance.current
+
+    val color = when {
+        scored.wasBest || scored.quality == MoveQuality.Good -> colorPalette.accent
+        scored.quality == MoveQuality.Inaccuracy -> colorPalette.textSecondary
+        else -> colorPalette.red
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        BasicText(
+            text = verdictOf(scored),
+            style = typography.xs.semiBold.color(color)
+        )
+
+        costOf(scored)?.let {
+            BasicText(text = it, style = typography.xxs.secondary)
+        }
+    }
+}
+
+@Composable
+private fun PlyDetail(ply: ReviewPly?, scored: AnalysedMove?) {
     val (colorPalette, typography) = LocalAppearance.current
 
     Column(
@@ -300,6 +363,10 @@ private fun PlyDetail(ply: ReviewPly?) {
             text = "$mover ${ply.move}",
             style = typography.s.semiBold
         )
+
+        // Only when the scored move is the one on screen. A mismatched ply would attach the
+        // engine's verdict to the wrong move, which is worse than showing none.
+        scored?.takeIf { it.notation == ply.move }?.let { QualityLine(it) }
 
         if (ply.isAi) {
             Row(
@@ -372,5 +439,97 @@ private fun ReviewError(
             text = "Try again",
             onClick = onRetry
         )
+    }
+}
+
+/**
+ * The whole-game verdict: how the evaluation moved, how accurately each side played, and the one
+ * move that decided it.
+ *
+ * Nothing here is load-bearing for the replay. A player with no engine installed still gets the
+ * board, the moves and the opponent's reasoning - they just get told, once, why there are no
+ * numbers, instead of being shown a spinner that never finishes.
+ */
+@Composable
+private fun AnalysisSection(
+    analysis: ReviewAnalysis,
+    plyIndex: Int,
+    onSeekPly: (Int) -> Unit
+) {
+    val (colorPalette, typography) = LocalAppearance.current
+
+    analysisNotice(analysis)?.let { notice ->
+        BasicText(
+            text = notice,
+            style = if (analysis.isRunning) typography.xs.secondary else typography.xxs.secondary,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+        return
+    }
+
+    val ready = analysis as? ReviewAnalysis.Ready ?: return
+    val summary = summaryOf(ready.analysis) ?: return
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+    ) {
+        BasicText(text = "How it went", style = typography.s.semiBold)
+
+        BasicText(text = summary.headline, style = typography.xs.secondary)
+
+        // Positive is Black, and Black is the player - so above the line is you winning.
+        LineChart(
+            series = listOf(
+                ChartSeries(
+                    values = ready.analysis.evaluationSeries,
+                    color = colorPalette.accent,
+                    filled = true
+                )
+            ),
+            referenceLine = ReferenceLine(value = 0f, label = "even"),
+            tickDecimals = 1,
+            startLabel = "opening",
+            endLabel = "end",
+            marker = plyIndex,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StatTile(
+                label = "your accuracy",
+                value = "${summary.accuracy}%",
+                accented = true,
+                modifier = Modifier.weight(1f)
+            )
+
+            StatTile(
+                label = "its accuracy",
+                value = "${summary.opponentAccuracy}%",
+                modifier = Modifier.weight(1f)
+            )
+
+            StatTile(
+                label = "your errors",
+                value = "${summary.mistakes + summary.blunders}",
+                detail = if (summary.blunders > 0) "${summary.blunders} blunder" else null,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        BasicText(text = summary.detail, style = typography.xxs.secondary)
+
+        summary.turningPoint?.let { move ->
+            SecondaryTextButton(
+                text = "Go to the turning point",
+                onClick = { onSeekPly(move.ply) }
+            )
+
+            summary.turningPointLine?.let {
+                BasicText(text = it, style = typography.xxs.secondary)
+            }
+        }
     }
 }

@@ -57,7 +57,9 @@ fun LineChart(
     tickDecimals: Int = 0,
     tickFormatter: ((Float) -> String)? = null,
     startLabel: String? = null,
-    endLabel: String? = null
+    endLabel: String? = null,
+    /** Index into the first series to call out - the ply the reader is looking at. */
+    marker: Int? = null
 ) {
     val (colorPalette, typography) = LocalAppearance.current
     val textMeasurer = rememberTextMeasurer()
@@ -138,6 +140,25 @@ fun LineChart(
         }
 
         series.forEach { drawSeries(it, axisRange, left, right, top, bottom) }
+
+        marker?.let { index ->
+            val values = series.firstOrNull()?.values?.filter { it.isFinite() }.orEmpty()
+            val value = values.getOrNull(index)
+
+            if (value != null) {
+                val x = xFor(index, values.size, left, right)
+                val y = yFor(value, axisRange, top, bottom)
+
+                drawLine(
+                    color = colorPalette.textDisabled,
+                    start = Offset(x, top),
+                    end = Offset(x, bottom),
+                    strokeWidth = 1.dp.toPx()
+                )
+
+                drawCircle(color = colorPalette.accent, radius = 4.dp.toPx(), center = Offset(x, y))
+            }
+        }
 
         if (hasFootLabels) {
             val y = size.height - footHeight + 2.dp.toPx()
