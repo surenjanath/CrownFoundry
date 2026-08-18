@@ -23,11 +23,14 @@ tools/            perft.py (rules engine verification), e2e_smoke.py (contract t
 - The human is always Black (moves first); the AI is always White.
 - Captures are mandatory. Multi-jumps must be played to completion. Crowning mid-jump ends the turn.
 - The backend is the single source of truth for rules — the mobile app applies nothing optimistically.
+- Pass-and-play, review analysis and puzzles run entirely on the device. A pass-and-play game must
+  never reach the upload outbox, on-device training, the opponent profile or the engine's win rate:
+  the agent did not play it.
 
 ## Testing
 
 ```sh
-# Backend: all 356+ tests
+# Backend: all 394 tests
 cd Backend && .venv/bin/python manage.py test
 
 # Rules engine integrity
@@ -37,8 +40,8 @@ python tools/perft.py --depth 8
 cd Backend && .venv/bin/python manage.py runserver &
 python tools/e2e_smoke.py
 
-# Mobile unit tests
-cd Mobile && ./gradlew :api:testDebugUnitTest :app:testDebugUnitTest
+# Mobile unit tests (360 across :engine, :api, :app)
+cd Mobile && ./gradlew :engine:test :api:testDebugUnitTest :app:testDebugUnitTest
 
 # Mobile APK
 cd Mobile && ./gradlew :app:assembleDebug

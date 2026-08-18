@@ -88,6 +88,10 @@ When the opponent moves, an integrated local LLM bridge (via **Ollama**) transla
   - **Self-Play Training**: Headless self-play engine (`python manage.py train_selfplay`) for offline policy bootstrapping and evaluation.
 - **True Offline Play**: The trained policy ships to the phone as a ~110 KB artifact and runs there — a full Kotlin port of the rules referee, the feature encoder, the Q-network and the alpha-beta search. Same weights, same depth, same node budget as the server, so the offline opponent is not a weaker one. If the device's copy has fallen behind, it says **"AI engine needs updating"** and keeps playing with what it has.
 - **It Learns Offline Too**: Finished offline games run the same Monte-Carlo credit assignment the backend runs, fine-tuning the on-device weights before the next game starts. Those games then sync back to the server, which replays every ply through the real engine, trains on them, and publishes a new policy the device picks up — so a week spent offline still feeds the shared opponent.
+- **Post-Game Analysis**: Opening a finished match scores every ply against the on-device engine — an evaluation curve with the position you are looking at marked on it, a verdict under each move naming what was there instead, and the one move that decided the game. It runs on the phone, so it works with no connection; a device with no engine installed is told so in one line rather than left waiting.
+- **Puzzles From Your Own Games**: The mistakes the analysis finds become practice positions — a real position you reached, with a move you could have played at the time. Revealing the answer is a dead end on purpose: it counts as an attempt and never as a solve.
+- **PDN Export**: Any game shares out as Portable Draughts Notation, the format every other draughts program reads, so a match does not end its life inside this app.
+- **Pass and Play**: Two players, one phone. The board turns to face whoever is to move once their opponent's move has finished animating. It is the one thing here that needs no engine at all, so it works on a device that has never been online — and nothing it produces reaches the trainer, the outbox, the opponent model or the engine's win rate.
 - **Adaptive Opponent Profiling**: Dynamically tracks player aggression, king-rush tendencies, and capture rates to customize search depth and exploration.
 - **Natural Language Move Commentary**: Bridges to a local **Ollama** LLM instance (e.g. `qwen3.5:9b` or `llama3`) to explain strategic reasoning behind each chosen move; gracefully falls back to deterministic heuristic narratives if offline.
 - **Bespoke Jetpack Compose UI**: Fast, fluid Android interface adapted from ViMusic's design system — custom fluid theming, animated piece hops and jump arcs, coronation effects, and zero boilerplate Material bloat.
@@ -335,7 +339,7 @@ python tools/perft.py --depth 8
 python tools/e2e_smoke.py
 ```
 
-### 4. Mobile Client Unit Tests (295 Tests)
+### 4. Mobile Client Unit Tests (360 Tests)
 
 ```bash
 cd Mobile

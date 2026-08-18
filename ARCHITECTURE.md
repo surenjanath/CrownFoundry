@@ -372,12 +372,14 @@ API package: `com.surenjanath.crownfoundry.api`.
 
 | Tab | Icon | Screen |
 | --- | --- | --- |
-| 0 Play | `sparkles` | Start/resume a match, difficulty picker, AI status card |
+| 0 Play | `sparkles` | Start/resume a match, start pass-and-play, difficulty picker, AI status card |
 | 1 Matches | `time` | Match history list, tap to review |
-| 2 Insights | `trending` | The AI's learning curve — win rate, game length, mistake repetition |
+| 2 Puzzles | `shapes` | Positions mined from your own mistakes, tap to attempt |
+| 3 Insights | `trending` | The AI's learning curve — win rate, game length, mistake repetition |
 
-`gameRoute` is a stacked route holding the live board. `settingsRoute` keeps only Appearance +
-About + a Backend URL field.
+`gameRoute` is a stacked route holding the live board; it carries the match id (or null for a new
+game) and whether the game is pass-and-play. `reviewRoute` and `puzzleRoute` carry a match id and a
+puzzle id. `settingsRoute` keeps only Appearance + About + a Backend URL field.
 
 **Design rules.** Reuse `LocalAppearance` (`colorPalette`, `typography`, `thumbnailShape`) for
 everything. No Material components. Board squares use `colorPalette.background2` / `background1`;
@@ -475,3 +477,41 @@ opponent; what it lacks is the Ollama commentary, and it says so.
 Settings → Offline: installed version and status, *Update now*, keep-the-engine-current (default
 on), always-play-offline (default off), learn-from-offline-games (default on), the outbox count,
 and last checked / downloaded / trained timestamps.
+
+---
+
+## 9. Review, puzzles and pass-and-play
+
+Three things built on the offline engine rather than on the referee. None of them has a server
+endpoint, and none of them is a mode the Django API knows about.
+
+**Post-game analysis** (`:engine` `Analysis.kt`, `:app` `ui/screens/matches/ReviewAnalysis.kt`).
+Opening a match in Review replays it through the rules engine and scores every ply against the
+installed policy: what was played, what the engine would have played, and the difference. The risk
+bonus is off for analysis — it is a style preference, and folding boldness into "what this move was
+worth" would misreport the number. Analysis is state separate from the replay, so a search that
+takes seconds never redraws the board it is analysing, and it is cancelled when the screen leaves
+composition.
+
+**Puzzles** (`:app` `offline/PuzzleStore.kt`, `ui/screens/puzzles/`). `puzzleSeedsFrom` keeps only
+errors where the best move is *clearly* best — a position whose second choice is just as good would
+mark a good answer wrong. Puzzles are collected on review, not at game over, and collection is
+additive and idempotent. Stored as JSON beside the match corpus, bounded at 60, solved ones dropped
+first. Revealing the answer finishes the attempt and can never become a solve.
+
+**Pass-and-play** (`:app` `offline/PassAndPlayApi.kt`, `GameMode` on `GameState`). One
+`CheckersApi` decorator over the offline referee whose only override is `startMatch`. The referee
+accepts a move from whichever side is to move; the turn machine never asks for an opponent turn;
+the board turns 180° to face the player to move, once the previous move has finished animating. It
+needs no policy, so it works on a device that has never been online.
+
+A pass-and-play match is marked on the stored match (`mode`) and beside the resumable match id
+(`activeMatchPassAndPlayKey`). It is excluded from the upload outbox, on-device training, the
+opponent profile, and the engine's own win rate — a game the agent did not play is not training
+data, and importing one would train the shared policy on moves the agent never chose.
+
+**PDN export** (`:engine` `Pdn.kt`, `:app` `ui/screens/matches/PdnExport.kt`). Review shares a game
+as Portable Draughts Notation, as text rather than a file. Black moves first, so move 1 pairs Black
+then White; `Result` is still written from White's side, so a game the human won exports as `0-1`.
+`GameType 20` is claimed only for genuine English rules — this app defaults to flying kings, and
+mislabelling that makes a file wrong in a way a reader cannot detect.
