@@ -67,7 +67,8 @@ import com.surenjanath.crownfoundry.utils.semiBold
 @Composable
 fun MatchesScreen(
     onReviewMatch: (String) -> Unit,
-    onResumeMatch: (String) -> Unit
+    /** The id, and whether it is a game between two people - the board behaves differently. */
+    onResumeMatch: (String, Boolean) -> Unit
 ) {
     val (colorPalette, typography) = LocalAppearance.current
 
@@ -140,7 +141,9 @@ fun MatchesScreen(
                     MatchRow(
                         match = match,
                         onReview = { onReviewMatch(match.matchId) },
-                        onResume = { onResumeMatch(match.matchId) }
+                        onResume = {
+                            onResumeMatch(match.matchId, isPassAndPlay(match.difficulty))
+                        }
                     )
                 }
             }

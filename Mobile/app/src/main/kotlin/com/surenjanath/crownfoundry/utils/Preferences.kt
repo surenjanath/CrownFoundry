@@ -31,6 +31,15 @@ const val playerIdKey = "playerId"
 const val difficultyKey = "difficulty"
 const val activeMatchIdKey = "activeMatchId"
 
+/**
+ * Whether the resumable match is a pass-and-play one.
+ *
+ * Kept beside the id rather than derived from it: an offline match id says where the game is
+ * stored, not who was playing, and resuming a two-player game against the engine would have it
+ * answer for a person who had simply walked away from the phone.
+ */
+const val activeMatchPassAndPlayKey = "activeMatchPassAndPlay"
+
 const val showLegalMovesKey = "showLegalMoves"
 const val showReasoningKey = "showReasoning"
 const val showEvaluationKey = "showEvaluation"

@@ -58,6 +58,9 @@ fun AiPanel(
 ) {
     val (colorPalette, typography) = LocalAppearance.current
     val counts = state.counts
+    // In pass-and-play this card is the other chair, not an opponent: there is no Elo to quote,
+    // no difficulty it was set to, and nothing it will tell you about why it moved.
+    val passAndPlay = state.mode.isPassAndPlay
     val isAiTurn = !state.isOver && state.sideToMove == Side.AI
     val thinking = state.phase == GamePhase.Thinking
     val capturedBlack = (12 - counts.black).coerceAtLeast(0)
@@ -101,7 +104,9 @@ fun AiPanel(
                         .border(1.5.dp, if (isAiTurn) colorPalette.accent else androidx.compose.ui.graphics.Color.Transparent, CircleShape)
                 ) {
                     Image(
-                        painter = painterResource(R.drawable.brain),
+                        painter = painterResource(
+                            if (passAndPlay) R.drawable.person else R.drawable.brain
+                        ),
                         contentDescription = null,
                         colorFilter = ColorFilter.tint(
                             if (thinking || isAiTurn) colorPalette.accent else colorPalette.textSecondary
@@ -116,11 +121,11 @@ fun AiPanel(
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         BasicText(
-                            text = "Opponent",
+                            text = if (passAndPlay) "White" else "Opponent",
                             style = typography.xs.semiBold
                         )
 
-                        if (state.aiStatus.elo > 0) {
+                        if (!passAndPlay && state.aiStatus.elo > 0) {
                             BasicText(
                                 text = "${state.aiStatus.elo} Elo",
                                 style = typography.xxs.medium.secondary
@@ -128,7 +133,7 @@ fun AiPanel(
                         }
 
                         // Difficulty tag
-                        Box(
+                        if (!passAndPlay) Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
                                 .background(colorPalette.background2)
@@ -143,7 +148,7 @@ fun AiPanel(
                         // Which brain is actually answering. The player is entitled to know they
                         // are facing the phone rather than the referee - the two are the same
                         // policy, but only one of them writes its reasoning in sentences.
-                        if (Offline.hybridOrNull?.isOffline == true) {
+                        if (!passAndPlay && Offline.hybridOrNull?.isOffline == true) {
                             OfflineBadge(versionLabel = Offline.engine.state.label)
                         }
                     }
@@ -171,7 +176,7 @@ fun AiPanel(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                if (!thinking && evaluation != null && showEvaluation) {
+                if (!passAndPlay && !thinking && evaluation != null && showEvaluation) {
                     BasicText(
                         text = "Q ${formatSigned(evaluation.qValue)}",
                         style = typography.xxs.semiBold.copy(color = colorPalette.accent)
@@ -216,7 +221,9 @@ fun AiPanel(
         }
 
         val reasoning = state.reasoning
-        if (thinking) {
+        if (passAndPlay) {
+            // Nothing to narrate and nobody to wait for; the turn indicator lives on the cards.
+        } else if (thinking) {
             ShimmerHost(
                 modifier = Modifier
                     .testTag(AiThinkingTag)

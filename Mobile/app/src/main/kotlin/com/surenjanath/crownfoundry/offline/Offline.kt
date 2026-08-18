@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 object Offline {
 
     private var hybrid: HybridCheckersApi? = null
+    private var passAndPlayApi: PassAndPlayApi? = null
     private var sync: EngineSync? = null
     private var store: LocalMatchStore? = null
     private var preferences: EnginePreferences? = null
@@ -34,6 +35,14 @@ object Offline {
 
     /** `null` before [initialise]; the UI treats that as "no offline information yet". */
     val hybridOrNull: HybridCheckersApi? get() = hybrid
+
+    /**
+     * The referee for a game between two people on this phone. Never touches the network and
+     * never needs a policy, so it is offered whether or not an engine has been downloaded.
+     *
+     * `null` only before [initialise], which is the same window in which no screen exists to ask.
+     */
+    val passAndPlay: CheckersApi? get() = passAndPlayApi
 
     val engine: EngineStore get() = EngineStore
 
@@ -54,6 +63,7 @@ object Offline {
 
         preferences = enginePreferences
         store = matchStore
+        passAndPlayApi = PassAndPlayApi(offline)
         hybrid = HybridCheckersApi(
             remote = CrownFoundryClient,
             local = offline,

@@ -56,6 +56,7 @@ import com.surenjanath.crownfoundry.ui.screens.insights.aiArcReading
 import com.surenjanath.crownfoundry.ui.screens.insights.percent
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
 import com.surenjanath.crownfoundry.utils.activeMatchIdKey
+import com.surenjanath.crownfoundry.utils.activeMatchPassAndPlayKey
 import com.surenjanath.crownfoundry.utils.backendUrlKey
 import com.surenjanath.crownfoundry.utils.color
 import com.surenjanath.crownfoundry.utils.defaultBackendUrl
@@ -77,12 +78,15 @@ import kotlinx.coroutines.launch
 @Composable
 fun PlayScreen(
     onPlay: (String?) -> Unit,
+    onPassAndPlay: () -> Unit,
+    onResume: (String, Boolean) -> Unit,
     onSeeInsights: () -> Unit
 ) {
     val (colorPalette, typography) = LocalAppearance.current
 
     var difficulty by rememberPreference(difficultyKey, Difficulty.Adaptive)
     val activeMatchId by rememberPreference(activeMatchIdKey, "")
+    val activeMatchPassAndPlay by rememberPreference(activeMatchPassAndPlayKey, false)
     val backendUrl by rememberPreference(backendUrlKey, defaultBackendUrl)
 
     var attempt by remember { mutableIntStateOf(0) }
@@ -152,6 +156,36 @@ fun PlayScreen(
             }
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onPassAndPlay() }
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            SecondaryButton(
+                onClick = onPassAndPlay,
+                iconId = R.drawable.person
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                BasicText(
+                    text = "Pass and play",
+                    style = typography.xs.semiBold
+                )
+
+                // Worth saying: this is the one thing in the app that never needs the engine.
+                BasicText(
+                    text = "Two players, one phone. The board turns to face whoever is to move, " +
+                        "and no download is needed.",
+                    style = typography.xxs.secondary
+                )
+            }
+        }
+
         if (activeMatchId.isNotEmpty()) {
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -160,11 +194,11 @@ fun PlayScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onPlay(activeMatchId) }
+                    .clickable { onResume(activeMatchId, activeMatchPassAndPlay) }
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 SecondaryButton(
-                    onClick = { onPlay(activeMatchId) },
+                    onClick = { onResume(activeMatchId, activeMatchPassAndPlay) },
                     iconId = R.drawable.sync
                 )
 
@@ -175,7 +209,11 @@ fun PlayScreen(
                     )
 
                     BasicText(
-                        text = "The match you left is still on the board.",
+                        text = if (activeMatchPassAndPlay) {
+                            "The two-player game you left is still on the board."
+                        } else {
+                            "The match you left is still on the board."
+                        },
                         style = typography.xxs.secondary
                     )
                 }

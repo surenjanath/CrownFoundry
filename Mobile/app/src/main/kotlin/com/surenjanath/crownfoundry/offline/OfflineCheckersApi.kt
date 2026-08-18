@@ -59,6 +59,9 @@ import kotlinx.coroutines.withContext
  * What is genuinely different offline is the narration. There is no Ollama, so the reasoning comes
  * from [Narrator] - the same heuristic the backend falls back to when Ollama is not installed.
  */
+/** What a pass-and-play match records instead of a difficulty. There is no engine to set one. */
+const val PASS_AND_PLAY_DIFFICULTY = "pass"
+
 class OfflineCheckersApi(
     private val store: LocalMatchStore,
     private val engine: EngineStore = EngineStore,
@@ -91,6 +94,27 @@ class OfflineCheckersApi(
         return Outcome.Success(envelope(match, boardOf(match)).copy(
             initialBoard = Board.initial(rules.toEngineRules()).toFen()
         ))
+    }
+
+    /**
+     * Start a game for two people sharing this phone.
+     *
+     * No engine check, unlike [startMatch]: nothing here needs a policy. A player who has never
+     * been online can still hand the phone across the table, which is the whole point of having
+     * the rules on the device.
+     */
+    suspend fun startPassAndPlay(rules: MatchRulesDto?): Outcome<MatchDto> {
+        val match = store.create(
+            difficulty = PASS_AND_PLAY_DIFFICULTY,
+            rules = rules,
+            engineVersion = engine.state.header?.serverVersion ?: 0,
+            mode = LocalMatch.MODE_PASS
+        )
+        return Outcome.Success(
+            envelope(match, boardOf(match)).copy(
+                initialBoard = Board.initial(rules.toEngineRules()).toFen()
+            )
+        )
     }
 
     override suspend fun match(matchId: String): Outcome<MatchDto> {
@@ -136,11 +160,14 @@ class OfflineCheckersApi(
         }
 
         val board = boardOf(match)
-        if (sideName(board.sideToMove) != Side.HUMAN) {
+        // Pass-and-play has no side of its own to defend: whoever the rules say is to move is the
+        // person holding the phone, so the referee only has to check that the move is legal.
+        val mover = sideName(board.sideToMove)
+        if (!match.isPassAndPlay && mover != Side.HUMAN) {
             return Outcome.Failure(
                 ApiError.Rejected(
                     409, "not_your_turn",
-                    "It is ${sideName(board.sideToMove)}'s turn, not ${Side.HUMAN}'s."
+                    "It is $mover's turn, not ${Side.HUMAN}'s."
                 )
             )
         }
@@ -157,7 +184,7 @@ class OfflineCheckersApi(
         }
 
         val after = board.apply(move)
-        store.appendMove(matchId, move.notation(), move.captures.size, Side.HUMAN)
+        store.appendMove(matchId, move.notation(), move.captures.size, mover)
         val winner = settle(matchId, after)
 
         return Outcome.Success(
@@ -184,6 +211,15 @@ class OfflineCheckersApi(
         if (match.isFinished) {
             return Outcome.Failure(
                 ApiError.Rejected(400, "match_finished", "This match is already finished.")
+            )
+        }
+
+        if (match.isPassAndPlay) {
+            return Outcome.Failure(
+                ApiError.Rejected(
+                    400, "no_opponent",
+                    "This is a pass-and-play match. Both sides are played by hand."
+                )
             )
         }
 
@@ -264,16 +300,28 @@ class OfflineCheckersApi(
         if (match.isFinished) {
             return Outcome.Success(ResignDto(ok = true, gameOver = true, winner = match.winner))
         }
-        // The human is Black; resigning hands the game to White.
-        store.finish(matchId, Side.AI, resignedBy = Side.HUMAN)
+
+        // The human is Black; resigning hands the game to White. In pass-and-play it is whoever
+        // has the move who is giving up, so the win goes to the other chair.
+        val quitter = if (match.isPassAndPlay) {
+            sideName(boardOf(match).sideToMove)
+        } else {
+            Side.HUMAN
+        }
+        val winner = if (quitter == Side.AI) Side.HUMAN else Side.AI
+
+        store.finish(matchId, winner, resignedBy = quitter)
         learnFrom(matchId)
-        return Outcome.Success(ResignDto(ok = true, gameOver = true, winner = Side.AI))
+        return Outcome.Success(ResignDto(ok = true, gameOver = true, winner = winner))
     }
 
     // --- analytics ---------------------------------------------------------------------------
 
     override suspend fun performance(): Outcome<PerformanceDto> {
-        val finished = store.all().filter { it.isFinished }.sortedBy { it.startedAt }
+        // The engine's record, so only games the engine was in.
+        val finished = store.all()
+            .filter { it.isFinished && !it.isPassAndPlay }
+            .sortedBy { it.startedAt }
         var aiWins = 0
 
         val winRate = finished.mapIndexed { index, match ->
@@ -312,7 +360,7 @@ class OfflineCheckersApi(
     }
 
     override suspend fun summary(): Outcome<AnalyticsSummaryDto> =
-        Outcome.Success(summaryOf(store.all().filter { it.isFinished }))
+        Outcome.Success(summaryOf(store.all().filter { it.isFinished && !it.isPassAndPlay }))
 
     private fun summaryOf(finished: List<LocalMatch>): AnalyticsSummaryDto {
         val aiWins = finished.count { it.winner == Side.AI }
@@ -374,6 +422,9 @@ class OfflineCheckersApi(
     private suspend fun learnFrom(matchId: String) {
         if (!preferences.learnOnDevice) return
         val match = store.find(matchId) ?: return
+        // Nothing to learn from a game the agent did not play. Training on White's moves here
+        // would teach the policy to imitate whoever borrowed the phone.
+        if (match.isPassAndPlay) return
         val aiSide = sideCode(Side.AI) ?: return
 
         val plies = replayMoves(match.moves, match.rules.toEngineRules())

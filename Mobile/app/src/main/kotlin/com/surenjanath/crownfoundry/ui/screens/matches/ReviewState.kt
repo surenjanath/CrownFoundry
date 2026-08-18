@@ -8,7 +8,6 @@ import com.surenjanath.crownfoundry.api.CheckersApi
 import com.surenjanath.crownfoundry.api.MatchDto
 import com.surenjanath.crownfoundry.api.Outcome
 import com.surenjanath.crownfoundry.api.Side
-import com.surenjanath.crownfoundry.enums.Difficulty
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -85,12 +84,14 @@ fun pliesOf(match: MatchDto): List<ReviewPly> {
 /** The one line at the top of the review: who won, in how many turns, at what difficulty. */
 fun reviewHeadline(match: MatchDto): String {
     val turns = match.turnNumber
-    val difficulty = Difficulty.fromWire(match.difficulty).label
+    val passAndPlay = isPassAndPlay(match.difficulty)
+    val difficulty = modeLabel(match.difficulty)
 
     val result = when {
         !match.isFinished -> "Still going"
-        match.winner == Side.HUMAN -> "You won"
-        match.winner == Side.AI -> "It won"
+        // Both players are the reader in pass-and-play, so neither of them is "you".
+        match.winner == Side.HUMAN -> if (passAndPlay) "Black won" else "You won"
+        match.winner == Side.AI -> if (passAndPlay) "White won" else "It won"
         else -> "Drawn"
     }
 

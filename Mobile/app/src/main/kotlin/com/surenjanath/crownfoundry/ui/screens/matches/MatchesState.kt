@@ -9,6 +9,7 @@ import com.surenjanath.crownfoundry.api.MatchSummaryDto
 import com.surenjanath.crownfoundry.api.Outcome
 import com.surenjanath.crownfoundry.api.Side
 import com.surenjanath.crownfoundry.enums.Difficulty
+import com.surenjanath.crownfoundry.offline.PASS_AND_PLAY_DIFFICULTY
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
@@ -44,8 +45,32 @@ fun outcomeBadge(outcome: MatchOutcome): String = when (outcome) {
     MatchOutcome.InProgress -> "OPEN"
 }
 
+/**
+ * A game two people played on one phone.
+ *
+ * It is recognised by the difficulty the offline referee records, because that is the one field
+ * the match list carries; there is nowhere else on a summary to put a mode.
+ */
+fun isPassAndPlay(difficulty: String?) = difficulty == PASS_AND_PLAY_DIFFICULTY
+
+/** The label for the mode: "Pass and play", or how hard the engine was trying. */
+fun modeLabel(difficulty: String?): String =
+    if (isPassAndPlay(difficulty)) "Pass and play" else Difficulty.fromWire(difficulty).label
+
 fun matchTitle(match: MatchSummaryDto): String {
     val turns = match.totalTurns
+
+    // Nobody at the table is "you" when both players are, so pass-and-play is reported by colour.
+    if (isPassAndPlay(match.difficulty)) {
+        return when (outcomeOf(match)) {
+            MatchOutcome.Won -> "Black won${inTurns(turns)}"
+            MatchOutcome.Lost -> "White won${inTurns(turns)}"
+            MatchOutcome.Drawn -> "Drawn${afterTurns(turns)}"
+            MatchOutcome.InProgress ->
+                if (turns <= 0) "Still going, no moves played yet"
+                else "Still going, $turns ${turnWord(turns)} in"
+        }
+    }
 
     return when (outcomeOf(match)) {
         MatchOutcome.Won -> "You won${inTurns(turns)}"
@@ -58,8 +83,13 @@ fun matchTitle(match: MatchSummaryDto): String {
 }
 
 fun matchSubtitle(match: MatchSummaryDto): String {
-    val difficulty = Difficulty.fromWire(match.difficulty).label
-    return "$difficulty · you took ${match.humanCaptures}, it took ${match.aiCaptures}"
+    val mode = modeLabel(match.difficulty)
+
+    if (isPassAndPlay(match.difficulty)) {
+        return "$mode · Black took ${match.humanCaptures}, White took ${match.aiCaptures}"
+    }
+
+    return "$mode · you took ${match.humanCaptures}, it took ${match.aiCaptures}"
 }
 
 /** A finished match is dated by when it ended; one still running, by when it started. */

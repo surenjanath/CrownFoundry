@@ -127,10 +127,19 @@ data class AnalysisSummary(
     val mistakes: Int,
     val blunders: Int,
     val turningPoint: AnalysedMove?,
-    val turningPointWasYours: Boolean
+    val turningPointWasYours: Boolean,
+    /** Two people played this, so neither side can be addressed as "you". */
+    val passAndPlay: Boolean = false
 ) {
+    val blackLabel get() = if (passAndPlay) "Black" else "you"
+    val whiteLabel get() = if (passAndPlay) "White" else "it"
+
     val headline: String
-        get() = "You played $accuracy% accurately, it played $opponentAccuracy%."
+        get() = if (passAndPlay) {
+            "Black played $accuracy% accurately, White played $opponentAccuracy%."
+        } else {
+            "You played $accuracy% accurately, it played $opponentAccuracy%."
+        }
 
     val detail: String
         get() {
@@ -139,20 +148,26 @@ data class AnalysisSummary(
                 if (mistakes > 0) add("$mistakes ${plural(mistakes, "mistake")}")
             }
             if (faults.isEmpty()) return "Nothing the engine would call a mistake. Well played."
-            return "${faults.joinToString(" and ")} in your moves."
+            val whose = if (passAndPlay) "Black's" else "your"
+            return "${faults.joinToString(" and ")} in $whose moves."
         }
 
     /** The single sentence worth reading if the player reads nothing else. */
     val turningPointLine: String?
         get() {
             val move = turningPoint ?: return null
-            val who = if (turningPointWasYours) "Your" else "Its"
+            val who = when {
+                passAndPlay && turningPointWasYours -> "Black's"
+                passAndPlay -> "White's"
+                turningPointWasYours -> "Your"
+                else -> "Its"
+            }
             return "$who move ${move.ply}, ${move.notation}, cost the most - ${move.best} " +
                 "was there instead."
         }
 }
 
-fun summaryOf(analysis: GameAnalysis): AnalysisSummary? {
+fun summaryOf(analysis: GameAnalysis, passAndPlay: Boolean = false): AnalysisSummary? {
     if (analysis.isEmpty) return null
 
     val turningPoint = analysis.turningPoint()
@@ -163,7 +178,8 @@ fun summaryOf(analysis: GameAnalysis): AnalysisSummary? {
         mistakes = analysis.count(BLACK, MoveQuality.Mistake),
         blunders = analysis.count(BLACK, MoveQuality.Blunder),
         turningPoint = turningPoint,
-        turningPointWasYours = turningPoint?.side == BLACK
+        turningPointWasYours = turningPoint?.side == BLACK,
+        passAndPlay = passAndPlay
     )
 }
 

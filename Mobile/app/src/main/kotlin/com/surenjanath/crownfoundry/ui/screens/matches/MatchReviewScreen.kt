@@ -185,13 +185,18 @@ fun MatchReviewScreen(matchId: String) {
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                PlyDetail(ply = ply, scored = analysis.moveAt(state.plyIndex))
+                PlyDetail(
+                    ply = ply,
+                    scored = analysis.moveAt(state.plyIndex),
+                    passAndPlay = isPassAndPlay(state.match?.difficulty)
+                )
 
                 Spacer(modifier = Modifier.height(20.dp))
 
                 AnalysisSection(
                     analysis = analysis,
                     plyIndex = state.plyIndex,
+                    passAndPlay = isPassAndPlay(state.match?.difficulty),
                     onSeekPly = holder::seek
                 )
 
@@ -336,7 +341,7 @@ private fun QualityLine(scored: AnalysedMove) {
 }
 
 @Composable
-private fun PlyDetail(ply: ReviewPly?, scored: AnalysedMove?) {
+private fun PlyDetail(ply: ReviewPly?, scored: AnalysedMove?, passAndPlay: Boolean) {
     val (colorPalette, typography) = LocalAppearance.current
 
     Column(
@@ -353,9 +358,9 @@ private fun PlyDetail(ply: ReviewPly?, scored: AnalysedMove?) {
             return@Column
         }
 
-        val mover = when (ply.side) {
-            Side.HUMAN -> "You played"
-            Side.AI -> "It played"
+        val mover = when {
+            ply.side == Side.HUMAN -> if (passAndPlay) "Black played" else "You played"
+            ply.side == Side.AI -> if (passAndPlay) "White played" else "It played"
             else -> "Played"
         }
 
@@ -454,6 +459,7 @@ private fun ReviewError(
 private fun AnalysisSection(
     analysis: ReviewAnalysis,
     plyIndex: Int,
+    passAndPlay: Boolean,
     onSeekPly: (Int) -> Unit
 ) {
     val (colorPalette, typography) = LocalAppearance.current
@@ -468,7 +474,7 @@ private fun AnalysisSection(
     }
 
     val ready = analysis as? ReviewAnalysis.Ready ?: return
-    val summary = summaryOf(ready.analysis) ?: return
+    val summary = summaryOf(ready.analysis, passAndPlay) ?: return
 
     Column(
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -499,20 +505,20 @@ private fun AnalysisSection(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StatTile(
-                label = "your accuracy",
+                label = "${summary.blackLabel} accuracy",
                 value = "${summary.accuracy}%",
                 accented = true,
                 modifier = Modifier.weight(1f)
             )
 
             StatTile(
-                label = "its accuracy",
+                label = "${summary.whiteLabel} accuracy",
                 value = "${summary.opponentAccuracy}%",
                 modifier = Modifier.weight(1f)
             )
 
             StatTile(
-                label = "your errors",
+                label = "${summary.blackLabel} errors",
                 value = "${summary.mistakes + summary.blunders}",
                 detail = if (summary.blunders > 0) "${summary.blunders} blunder" else null,
                 modifier = Modifier.weight(1f)

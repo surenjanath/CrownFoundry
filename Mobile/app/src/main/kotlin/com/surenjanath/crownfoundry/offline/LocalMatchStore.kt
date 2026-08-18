@@ -48,10 +48,26 @@ data class LocalMatch(
     /** The AI's narration, one entry per AI move, so a resumed match keeps its commentary. */
     val reasoning: List<String> = emptyList(),
     val aiCaptures: Int = 0,
-    val humanCaptures: Int = 0
+    val humanCaptures: Int = 0,
+    /**
+     * Who was sitting on the other side. Defaults to the engine so every game stored before
+     * pass-and-play existed still reads as what it was.
+     */
+    val mode: String = MODE_ENGINE
 ) {
     val isFinished get() = winner != null
     val isActive get() = winner == null
+
+    /**
+     * Two people and one phone. It matters far past the UI: a game the engine never played is
+     * not training data, not an opponent model, and not a result to judge the engine by.
+     */
+    val isPassAndPlay get() = mode == MODE_PASS
+
+    companion object {
+        const val MODE_ENGINE = "engine"
+        const val MODE_PASS = "pass"
+    }
 }
 
 @Serializable
@@ -89,9 +105,15 @@ class LocalMatchStore(private val file: File) {
     suspend fun find(matchId: String): LocalMatch? =
         mutex.withLock { read().matches.firstOrNull { it.matchId == matchId } }
 
-    /** Finished games the server has not confirmed yet, oldest first. */
+    /**
+     * Finished games the server has not confirmed yet, oldest first.
+     *
+     * Pass-and-play never goes up. The server would import it as a game its agent played and
+     * train on moves the agent never chose, which is a slow way to make the engine worse.
+     */
     suspend fun pendingUploads(): List<LocalMatch> = mutex.withLock {
-        read().matches.filter { it.isFinished && !it.uploaded && it.moves.isNotEmpty() }
+        read().matches
+            .filter { it.isFinished && !it.uploaded && it.moves.isNotEmpty() && !it.isPassAndPlay }
             .sortedBy { it.startedAt }
     }
 
@@ -103,7 +125,10 @@ class LocalMatchStore(private val file: File) {
      * `styleKingRush` is how hard they push for promotion.
      */
     suspend fun opponentProfile(): OpponentProfile = mutex.withLock {
-        val finished = read().matches.filter { it.isFinished }
+        // Only games this device's owner played against the engine. In pass-and-play the Black
+        // pieces are whoever was handed the phone, and modelling them as the regular opponent
+        // would tune the engine against a person it is not playing.
+        val finished = read().matches.filter { it.isFinished && !it.isPassAndPlay }
         if (finished.isEmpty()) return@withLock OpponentProfile()
 
         val humanWins = finished.count { it.winner == Side.HUMAN }
@@ -148,7 +173,8 @@ class LocalMatchStore(private val file: File) {
     suspend fun create(
         difficulty: String,
         rules: MatchRulesDto?,
-        engineVersion: Int
+        engineVersion: Int,
+        mode: String = LocalMatch.MODE_ENGINE
     ): LocalMatch = mutate { current ->
         val id = UUID.randomUUID().toString()
         val match = LocalMatch(
@@ -157,7 +183,8 @@ class LocalMatchStore(private val file: File) {
             difficulty = difficulty,
             rules = rules,
             startedAt = System.currentTimeMillis(),
-            engineVersion = engineVersion
+            engineVersion = engineVersion,
+            mode = mode
         )
         current.copy(matches = (current.matches + match).takeNewest()) to match
     }

@@ -74,13 +74,19 @@ fun HomeScreen() {
                 saveableStateHolder.SaveableStateProvider(key = currentTabIndex) {
                     when (currentTabIndex) {
                         0 -> PlayScreen(
-                            onPlay = { matchId -> gameRoute.global(matchId) },
+                            onPlay = { matchId -> gameRoute.global(matchId, false) },
+                            onPassAndPlay = { gameRoute.global(null, true) },
+                            onResume = { matchId, passAndPlay ->
+                                gameRoute.global(matchId, passAndPlay)
+                            },
                             onSeeInsights = { onTabChanged(2) }
                         )
 
                         1 -> MatchesScreen(
                             onReviewMatch = { matchId -> reviewRoute.global(matchId) },
-                            onResumeMatch = { matchId -> gameRoute.global(matchId) }
+                            onResumeMatch = { matchId, passAndPlay ->
+                                gameRoute.global(matchId, passAndPlay)
+                            }
                         )
 
                         2 -> InsightsScreen()

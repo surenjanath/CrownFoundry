@@ -111,15 +111,19 @@ fun GameActionBar(
         val statusText = when {
             state.phase == GamePhase.Loading -> "Setting up..."
             state.isOver -> when (state.winner) {
-                com.surenjanath.crownfoundry.api.Side.HUMAN -> "Victory! 🎉"
-                com.surenjanath.crownfoundry.api.Side.AI -> "AI Won"
+                com.surenjanath.crownfoundry.api.Side.HUMAN ->
+                    if (state.mode.isPassAndPlay) "Black won" else "Victory! 🎉"
+
+                com.surenjanath.crownfoundry.api.Side.AI ->
+                    if (state.mode.isPassAndPlay) "White won" else "AI Won"
                 com.surenjanath.crownfoundry.api.Side.DRAW -> "Draw Game"
                 else -> "Game Finished"
             }
             state.mustCapture -> "Capture is mandatory!"
             state.phase == GamePhase.Thinking -> "AI is analyzing..."
-            state.sideToMove == com.surenjanath.crownfoundry.api.Side.HUMAN -> "Your turn"
-            else -> "Opponent's turn"
+            state.sideToMove == com.surenjanath.crownfoundry.api.Side.HUMAN ->
+                if (state.mode.isPassAndPlay) "Black to move" else "Your turn"
+            else -> if (state.mode.isPassAndPlay) "White to move" else "Opponent's turn"
         }
 
         BasicText(

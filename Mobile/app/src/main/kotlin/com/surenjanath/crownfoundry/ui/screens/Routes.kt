@@ -6,11 +6,16 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.Composable
 import it.vfsfitvnm.compose.routing.Route0
 import it.vfsfitvnm.compose.routing.Route1
+import it.vfsfitvnm.compose.routing.Route2
 import it.vfsfitvnm.compose.routing.RouteHandlerScope
+import com.surenjanath.crownfoundry.ui.screens.game.GameMode
 import com.surenjanath.crownfoundry.ui.screens.game.GameScreen
 
-/** The live board. Carries a match id, or null to start a fresh one. */
-val gameRoute = Route1<String?>("gameRoute")
+/**
+ * The live board. Carries a match id, or null to start a fresh one, and whether the game is
+ * between two people at this phone.
+ */
+val gameRoute = Route2<String?, Boolean>("gameRoute")
 
 /** A finished match, replayed ply by ply. */
 val reviewRoute = Route1<String>("reviewRoute")
@@ -23,7 +28,10 @@ val settingsRoute = Route0("settingsRoute")
 @ExperimentalFoundationApi
 @Composable
 inline fun RouteHandlerScope.globalRoutes() {
-    gameRoute { matchId ->
-        GameScreen(matchId = matchId)
+    gameRoute { matchId, passAndPlay ->
+        GameScreen(
+            matchId = matchId,
+            mode = if (passAndPlay) GameMode.PassAndPlay else GameMode.VersusEngine
+        )
     }
 }

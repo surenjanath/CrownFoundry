@@ -49,6 +49,7 @@ fun PlayerCard(
 ) {
     val (colorPalette, typography) = LocalAppearance.current
     val counts = state.counts
+    val passAndPlay = state.mode.isPassAndPlay
     val isMyTurn = !state.isOver && state.sideToMove == Side.HUMAN
     val capturedWhite = (12 - counts.white).coerceAtLeast(0)
 
@@ -92,7 +93,7 @@ fun PlayerCard(
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     BasicText(
-                        text = "You",
+                        text = if (passAndPlay) "Black" else "You",
                         style = typography.xs.semiBold
                     )
 
@@ -104,7 +105,11 @@ fun PlayerCard(
                                 .padding(horizontal = 5.dp, vertical = 1.dp)
                         ) {
                             BasicText(
-                                text = if (state.mustCapture) "Must Jump!" else "Your Move",
+                                text = when {
+                                    state.mustCapture -> "Must Jump!"
+                                    passAndPlay -> "Black to move"
+                                    else -> "Your Move"
+                                },
                                 style = typography.xxs.semiBold.copy(color = Color.White)
                             )
                         }

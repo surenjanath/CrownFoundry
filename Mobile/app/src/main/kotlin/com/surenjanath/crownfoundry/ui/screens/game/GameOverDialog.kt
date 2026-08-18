@@ -39,14 +39,16 @@ fun GameOverDialog(
     winner: String?,
     counts: PieceCounts,
     onRematch: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Both players are in the room, so the dialog names colours rather than sides. */
+    passAndPlay: Boolean = false
 ) {
     val (colorPalette, typography) = LocalAppearance.current
 
-    val title = when (winner) {
-        Side.HUMAN -> "You win"
-        Side.AI -> "The machine wins"
-        Side.DRAW -> "A draw"
+    val title = when {
+        winner == Side.HUMAN -> if (passAndPlay) "Black wins" else "You win"
+        winner == Side.AI -> if (passAndPlay) "White wins" else "The machine wins"
+        winner == Side.DRAW -> "A draw"
         else -> "Game over"
     }
 
@@ -56,7 +58,11 @@ fun GameOverDialog(
     ) {
         Image(
             painter = painterResource(
-                if (winner == Side.HUMAN) R.drawable.crown else R.drawable.brain
+                when {
+                    passAndPlay -> R.drawable.trophy
+                    winner == Side.HUMAN -> R.drawable.crown
+                    else -> R.drawable.brain
+                }
             ),
             contentDescription = null,
             colorFilter = ColorFilter.tint(colorPalette.accent),
@@ -72,10 +78,12 @@ fun GameOverDialog(
         )
 
         BasicText(
-            text = when (winner) {
-                Side.HUMAN -> "It ran out of pieces to move."
-                Side.AI -> "It closed the position and you ran out of moves."
-                Side.DRAW -> "Neither side could force a win."
+            text = when {
+                winner == Side.HUMAN && passAndPlay -> "White ran out of moves."
+                winner == Side.AI && passAndPlay -> "Black ran out of moves."
+                winner == Side.HUMAN -> "It ran out of pieces to move."
+                winner == Side.AI -> "It closed the position and you ran out of moves."
+                winner == Side.DRAW -> "Neither side could force a win."
                 else -> "The match is finished."
             },
             style = typography.xxs.medium.center.secondary,
@@ -86,11 +94,22 @@ fun GameOverDialog(
             horizontalArrangement = Arrangement.spacedBy(24.dp),
             modifier = Modifier.padding(top = 20.dp)
         ) {
-            FinalTally("You", counts.black, counts.blackKings, colorPalette.accent)
-            FinalTally("Opponent", counts.white, counts.whiteKings, colorPalette.text)
+            FinalTally(
+                if (passAndPlay) "Black" else "You",
+                counts.black,
+                counts.blackKings,
+                colorPalette.accent
+            )
+            FinalTally(
+                if (passAndPlay) "White" else "Opponent",
+                counts.white,
+                counts.whiteKings,
+                colorPalette.text
+            )
         }
 
-        if (winner == Side.AI) {
+        // Nothing was learned from a game the engine did not play, so nothing is claimed.
+        if (winner == Side.AI && !passAndPlay) {
             // The RL loop is the product. Say so, plainly, at the moment it matters.
             BasicText(
                 text = "It has already replayed this game and adjusted its policy. The next one " +

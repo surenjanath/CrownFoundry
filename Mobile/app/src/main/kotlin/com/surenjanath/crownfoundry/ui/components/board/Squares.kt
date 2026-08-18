@@ -51,13 +51,22 @@ object Squares {
     // The human is Black and Black's home rank is row 0, so the board is turned through 180 degrees
     // before it is drawn: the player looks at their own pieces from behind. This flip exists only
     // here - a square number on the wire is never flipped.
+    //
+    // [fromBlack] is false only in pass-and-play, where the board turns to face whichever of the
+    // two people at the phone is to move. The default is the way the app has always drawn it.
 
-    fun renderRowOf(square: Int) = SIDE - 1 - rowOf(square)
+    fun renderRowOf(square: Int, fromBlack: Boolean = true) =
+        if (fromBlack) SIDE - 1 - rowOf(square) else rowOf(square)
 
-    fun renderColOf(square: Int) = SIDE - 1 - colOf(square)
+    fun renderColOf(square: Int, fromBlack: Boolean = true) =
+        if (fromBlack) SIDE - 1 - colOf(square) else colOf(square)
 
-    fun squareAtRendered(renderRow: Int, renderCol: Int): Int {
+    fun squareAtRendered(renderRow: Int, renderCol: Int, fromBlack: Boolean = true): Int {
         if (!isOnBoard(renderRow, renderCol)) return NONE
-        return squareAt(SIDE - 1 - renderRow, SIDE - 1 - renderCol)
+        return if (fromBlack) {
+            squareAt(SIDE - 1 - renderRow, SIDE - 1 - renderCol)
+        } else {
+            squareAt(renderRow, renderCol)
+        }
     }
 }

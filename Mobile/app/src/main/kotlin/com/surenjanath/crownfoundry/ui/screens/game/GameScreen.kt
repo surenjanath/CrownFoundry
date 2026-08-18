@@ -70,6 +70,7 @@ import com.surenjanath.crownfoundry.ui.components.themed.MenuEntry
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
 import com.surenjanath.crownfoundry.ui.styling.primaryButton
 import com.surenjanath.crownfoundry.utils.activeMatchIdKey
+import com.surenjanath.crownfoundry.utils.activeMatchPassAndPlayKey
 import com.surenjanath.crownfoundry.utils.copyToClipboard
 import com.surenjanath.crownfoundry.utils.difficultyKey
 import com.surenjanath.crownfoundry.utils.hapticFeedbackKey
@@ -89,6 +90,14 @@ const val GameScreenTag = "gameScreen"
 const val ResignButtonTag = "resignButton"
 
 /**
+ * The referee for a mode. Pass-and-play is always the device's own - it needs no policy and no
+ * network - and falls back to the ordinary route only in the window before offline mode is wired,
+ * where no screen exists to ask.
+ */
+private fun apiFor(mode: GameMode): CheckersApi =
+    if (mode.isPassAndPlay) Offline.passAndPlay ?: Offline.api else Offline.api
+
+/**
  * The live board.
  *
  * [matchId] is null for "start a new one". Everything the screen knows lives in [GameState]; this
@@ -99,7 +108,8 @@ const val ResignButtonTag = "resignButton"
 @Composable
 fun GameScreen(
     matchId: String?,
-    api: CheckersApi = Offline.api
+    mode: GameMode = GameMode.VersusEngine,
+    api: CheckersApi = apiFor(mode)
 ) {
     val (colorPalette, typography) = LocalAppearance.current
 
@@ -120,6 +130,7 @@ fun GameScreen(
     val menCaptureBackwards by rememberPreference(com.surenjanath.crownfoundry.utils.menCaptureBackwardsKey, true)
     val mandatoryCapture by rememberPreference(com.surenjanath.crownfoundry.utils.mandatoryCaptureKey, true)
     var activeMatchId by rememberPreference(activeMatchIdKey, "")
+    var activeMatchPassAndPlay by rememberPreference(activeMatchPassAndPlayKey, false)
     val playerId = rememberPlayerId()
 
     val rules = remember(flyingKings, menCaptureBackwards, mandatoryCapture) {
@@ -134,15 +145,19 @@ fun GameScreen(
     // null the route was originally opened with.
     var resumeId by rememberSaveable { mutableStateOf(matchId) }
 
-    val state = remember(api) {
+    val state = remember(api, mode) {
         GameState(
             api = api,
             difficulty = difficulty,
             playerId = playerId.takeIf { it.isNotEmpty() },
             rules = rules,
+            mode = mode,
             onMatchIdChanged = { id ->
                 resumeId = id
                 activeMatchId = id.orEmpty()
+                // Recorded beside the id so "Resume" comes back to the game that was left, not to
+                // the engine answering for whoever had the other chair.
+                activeMatchPassAndPlay = id != null && mode.isPassAndPlay
             }
         )
     }
@@ -155,7 +170,8 @@ fun GameScreen(
     // outbox now has a game in it; if it was played online the server has just retrained, and
     // either way this is when the device is most likely to be behind.
     LaunchedEffect(state.isOver) {
-        if (state.isOver) Offline.synchroniseInBackground(playerId)
+        // Pass-and-play produces nothing the server wants: no engine move, no training signal.
+        if (state.isOver && !mode.isPassAndPlay) Offline.synchroniseInBackground(playerId)
     }
 
     var confirmingResign by rememberSaveable { mutableStateOf(false) }
@@ -241,6 +257,7 @@ fun GameScreen(
                 lastMove = state.lastMove,
                 showHints = showLegalMoves,
                 enabled = state.acceptsTaps,
+                fromBlack = state.viewpoint != Side.AI,
                 onAnimationEnd = state::clearAnimation,
                 onSquareTap = onSquareTap,
                 modifier = boardModifier
@@ -397,8 +414,12 @@ fun GameScreen(
 
     if (confirmingResign) {
         ConfirmationDialog(
-            text = "Resign this match? It counts as a win for the machine, and it will learn " +
-                    "from it.",
+            text = if (mode.isPassAndPlay) {
+                "Resign this match? The player to move gives it to the other side."
+            } else {
+                "Resign this match? It counts as a win for the machine, and it will learn " +
+                        "from it."
+            },
             confirmText = "Resign",
             onDismiss = { confirmingResign = false },
             onConfirm = { scope.launch { state.resign() } }
@@ -409,6 +430,7 @@ fun GameScreen(
         GameOverDialog(
             winner = state.winner,
             counts = state.counts,
+            passAndPlay = mode.isPassAndPlay,
             onDismiss = { dismissedGameOver = true },
             onRematch = {
                 dismissedGameOver = false

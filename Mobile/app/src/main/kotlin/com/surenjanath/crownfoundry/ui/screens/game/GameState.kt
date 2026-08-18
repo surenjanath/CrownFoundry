@@ -45,6 +45,20 @@ enum class GamePhase {
 
 enum class RetryAction { None, Begin, AiTurn }
 
+/**
+ * Who is on the other side of the board.
+ *
+ * Only two things actually differ. In [PassAndPlay] no opponent turn is ever requested - the board
+ * simply stays live for whoever is to move - and the board is drawn from that player's side of the
+ * table, because both players are sitting at the phone.
+ */
+enum class GameMode {
+    VersusEngine,
+    PassAndPlay;
+
+    val isPassAndPlay get() = this == PassAndPlay
+}
+
 @Immutable
 data class GameFailure(val error: ApiError, val retry: RetryAction) {
     val canRetry get() = retry != RetryAction.None
@@ -97,6 +111,7 @@ class GameState(
     val difficulty: String = "adaptive",
     private val playerId: String? = null,
     val rules: MatchRulesDto? = null,
+    val mode: GameMode = GameMode.VersusEngine,
     private val onMatchIdChanged: (String?) -> Unit = {}
 ) {
     var matchId by mutableStateOf<String?>(null)
@@ -154,6 +169,17 @@ class GameState(
     var aiTurns by mutableStateOf(0)
         private set
 
+    /**
+     * Whose side of the table the board is drawn from.
+     *
+     * Fixed at Black against the engine - you always look at your own pieces from behind. In
+     * pass-and-play it follows the player to move, but only once the move that changed hands has
+     * finished animating: turning the board through 180 degrees while a piece is still sliding
+     * across it reads as a glitch rather than as handing the phone over.
+     */
+    var viewpoint by mutableStateOf(Side.BLACK)
+        private set
+
     val counts: PieceCounts get() = PieceCounts.of(pieces)
 
     val isOver get() = phase == GamePhase.Over
@@ -162,8 +188,12 @@ class GameState(
             phase == GamePhase.Submitting ||
             phase == GamePhase.Thinking
 
-    /** The board still answers to a finger only while the human genuinely has the move. */
-    val acceptsTaps get() = phase == GamePhase.HumanTurn && sideToMove == Side.HUMAN
+    /**
+     * The board still answers to a finger only while the human genuinely has the move - and in
+     * pass-and-play whoever has the move is a human, so the only question is the phase.
+     */
+    val acceptsTaps get() = phase == GamePhase.HumanTurn &&
+            (mode.isPassAndPlay || sideToMove == Side.HUMAN)
 
     val mustCapture get() = MoveTree.capturesPending(legalMoves)
 
@@ -199,12 +229,15 @@ class GameState(
                 evaluation = null
                 adopt(match.board, match.legalMoves)
 
+                viewpoint = if (mode.isPassAndPlay) sideToMove else Side.BLACK
+
                 if (match.isFinished) {
                     finish(match.winner)
                 } else {
                     phase = GamePhase.HumanTurn
-                    // A resumed match can be sitting on the opponent's move.
-                    if (sideToMove == Side.AI) aiTurn()
+                    // A resumed match can be sitting on the opponent's move - unless there is no
+                    // opponent, in which case it is simply the other player's go.
+                    if (sideToMove == Side.AI && !mode.isPassAndPlay) aiTurn()
                 }
             }
 
@@ -235,17 +268,18 @@ class GameState(
 
                 turnNumber = result.turnNumber
                 showMove(
+                    // In pass-and-play the person who just moved may have been White.
                     notation = result.appliedMove.notation.ifEmpty { notation },
                     captures = result.appliedMove.captures,
                     crowned = result.appliedMove.crowned,
-                    side = Side.HUMAN,
+                    side = previousSide,
                     before = previousPieces
                 )
                 adopt(result.board, result.legalMoves)
 
                 if (result.gameOver) finish(result.winner) else {
                     phase = GamePhase.HumanTurn
-                    aiTurn()
+                    if (mode.isPassAndPlay) syncViewpoint() else aiTurn()
                 }
             }
 
@@ -345,6 +379,17 @@ class GameState(
 
     fun clearAnimation() {
         animation = null
+        syncViewpoint()
+    }
+
+    /**
+     * Turn the board to face whoever is to move. A no-op against the engine, and a no-op while a
+     * move is still on screen - [clearAnimation] calls it again the moment there is not.
+     */
+    private fun syncViewpoint() {
+        if (!mode.isPassAndPlay) return
+        if (animation != null) return
+        viewpoint = sideToMove
     }
 
     // --- input -----------------------------------------------------------------------------------

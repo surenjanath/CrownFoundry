@@ -31,14 +31,21 @@ object PdnExport {
             event = "CrownFoundry match",
             site = "CrownFoundry",
             round = "-",
-            // White is the engine, Black is the person holding the phone.
-            white = "CrownFoundry ${Difficulty.fromWire(match.difficulty).label}",
-            black = "Player",
+            // White is the engine, Black is the person holding the phone - unless both were
+            // people, in which case naming the engine in the file would be a lie about who played.
+            white = if (isPassAndPlay(match.difficulty)) {
+                "White"
+            } else {
+                "CrownFoundry ${Difficulty.fromWire(match.difficulty).label}"
+            },
+            black = if (isPassAndPlay(match.difficulty)) "Black" else "Player",
             result = Pdn.resultOf(winnerOf(match)),
             rules = match.rules.toEngineRules(),
             extra = buildList {
                 if (match.matchId.isNotBlank()) add("MatchId" to match.matchId)
-                if (match.ai.policyVersion > 0) {
+                if (isPassAndPlay(match.difficulty)) {
+                    add("Mode" to "Pass and play")
+                } else if (match.ai.policyVersion > 0) {
                     add("PolicyVersion" to match.ai.policyVersion.toString())
                 }
             }
