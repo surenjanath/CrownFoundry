@@ -49,9 +49,9 @@ enum class RetryAction { None, Begin, AiTurn }
 /**
  * Who is on the other side of the board.
  *
- * Only two things actually differ. In [PassAndPlay] no opponent turn is ever requested - the board
- * simply stays live for whoever is to move - and the board is drawn from that player's side of the
- * table, because both players are sitting at the phone.
+ * One thing differs: in [PassAndPlay] no opponent turn is ever requested, so the board simply stays
+ * live for whoever is to move. The board itself is drawn the same way in both, from Black's side,
+ * the way a board on a table stays put while the players take turns reaching across it.
  */
 enum class GameMode {
     VersusEngine,
@@ -159,17 +159,6 @@ class GameState(
     var aiTurns by mutableStateOf(0)
         private set
 
-    /**
-     * Whose side of the table the board is drawn from.
-     *
-     * Fixed at Black against the engine - you always look at your own pieces from behind. In
-     * pass-and-play it follows the player to move, but only once the move that changed hands has
-     * finished animating: turning the board through 180 degrees while a piece is still sliding
-     * across it reads as a glitch rather than as handing the phone over.
-     */
-    var viewpoint by mutableStateOf(Side.BLACK)
-        private set
-
     val counts: PieceCounts get() = PieceCounts.of(pieces)
 
     val isOver get() = phase == GamePhase.Over
@@ -219,8 +208,6 @@ class GameState(
                 evaluation = null
                 adopt(match.board, match.legalMoves)
 
-                viewpoint = if (mode.isPassAndPlay) sideToMove else Side.BLACK
-
                 if (match.isFinished) {
                     finish(match.winner)
                 } else {
@@ -269,7 +256,8 @@ class GameState(
 
                 if (result.gameOver) finish(result.winner) else {
                     phase = GamePhase.HumanTurn
-                    if (mode.isPassAndPlay) syncViewpoint() else aiTurn()
+                    // Nobody to ask in pass-and-play: the board is simply the other player's now.
+                    if (!mode.isPassAndPlay) aiTurn()
                 }
             }
 
@@ -369,17 +357,6 @@ class GameState(
 
     fun clearAnimation() {
         animation = null
-        syncViewpoint()
-    }
-
-    /**
-     * Turn the board to face whoever is to move. A no-op against the engine, and a no-op while a
-     * move is still on screen - [clearAnimation] calls it again the moment there is not.
-     */
-    private fun syncViewpoint() {
-        if (!mode.isPassAndPlay) return
-        if (animation != null) return
-        viewpoint = sideToMove
     }
 
     // --- input -----------------------------------------------------------------------------------

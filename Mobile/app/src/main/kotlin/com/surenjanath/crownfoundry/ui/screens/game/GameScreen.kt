@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -34,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -42,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -243,175 +246,204 @@ fun GameScreen(
         }
     }
 
+
+    // Everything derived about the game is computed once, here, and handed down. The seats, the
+    // action bar and the game-over dialog all read the same answer rather than each working it out.
+    val elapsed = rememberMoveClock(turnKey = state.turnNumber, running = state.acceptsTaps)
+
+    val presentation = state.present(
+        showReasoning = showReasoning,
+        showEvaluation = showEvaluation,
+        engineLabel = Offline.engine.state.label
+            .takeIf { Offline.hybridOrNull?.isOffline == true },
+        elapsedSeconds = elapsed
+    )
+
+    val boardSurface: @Composable (Modifier) -> Unit = { boardModifier ->
+        CheckersBoard(
+            pieces = state.pieces,
+            legalMoves = state.legalMoves,
+            selection = state.selection,
+            animation = state.animation,
+            lastMove = state.lastMove,
+            showHints = showLegalMoves,
+            enabled = state.acceptsTaps,
+            onAnimationEnd = state::clearAnimation,
+            onSquareTap = onSquareTap,
+            modifier = boardModifier
+        )
+    }
+
+    val actionBar: @Composable (Modifier) -> Unit = { barModifier ->
+        GameActionBar(
+            isOver = state.isOver,
+            event = presentation.event,
+            showReasoning = showReasoning,
+            onToggleReasoning = { showReasoning = !showReasoning },
+            onResign = { confirmingResign = true },
+            onMenu = openMenu,
+            onRematch = { scope.launch { state.rematch() } },
+            modifier = barModifier
+        )
+    }
+
+    val failureCard: @Composable (Modifier) -> Unit = { failureModifier ->
+        state.failure?.let { failure ->
+            GameFailureCard(
+                failure = failure,
+                onRetry = { scope.launch { state.retry() } },
+                onDismiss = state::dismissFailure,
+                modifier = failureModifier
+            )
+        }
+    }
+
     Box(
         modifier = Modifier
             .testTag(GameScreenTag)
             .background(colorPalette.background0)
             .fillMaxSize()
     ) {
-        val board: @Composable (Modifier) -> Unit = { boardModifier ->
-            CheckersBoard(
-                pieces = state.pieces,
-                legalMoves = state.legalMoves,
-                selection = state.selection,
-                animation = state.animation,
-                lastMove = state.lastMove,
-                showHints = showLegalMoves,
-                enabled = state.acceptsTaps,
-                fromBlack = state.viewpoint != Side.AI,
-                onAnimationEnd = state::clearAnimation,
-                onSquareTap = onSquareTap,
-                modifier = boardModifier
-            )
-        }
-
-        val side: @Composable (Modifier) -> Unit = { sideModifier ->
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = sideModifier
-            ) {
-                state.failure?.let { failure ->
-                    GameFailureCard(
-                        failure = failure,
-                        onRetry = { scope.launch { state.retry() } },
-                        onDismiss = state::dismissFailure,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                AiPanel(
-                    state = state,
-                    onBack = { backDispatcher?.onBackPressed() },
-                    showReasoning = showReasoning,
-                    showEvaluation = showEvaluation,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-
         if (isLandscape) {
-            Row(modifier = Modifier.fillMaxSize()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(windowInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Vertical).asPaddingValues())
+                    .padding(16.dp)
+            ) {
+                // The board takes a square of whatever height it is given. It is measured before
+                // the panel beside it and cannot see the panel's contents, so nothing that appears
+                // over there can resize or move it.
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                        .padding(16.dp)
-                        .padding(windowInsets.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical).asPaddingValues())
+                    modifier = Modifier.fillMaxHeight()
                 ) {
-                    board(
+                    boardSurface(
                         Modifier
-                            .fillMaxSize()
+                            .fillMaxHeight()
+                            .aspectRatio(1f)
                             .clip(RoundedCornerShape(16.dp))
+                            .background(colorPalette.background1)
                     )
                 }
 
                 Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(windowInsets.only(WindowInsetsSides.End + WindowInsetsSides.Vertical).asPaddingValues())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                        .fillMaxHeight()
                 ) {
-                    AiPanel(
-                        state = state,
-                        onBack = { backDispatcher?.onBackPressed() },
-                        showReasoning = showReasoning,
-                        showEvaluation = showEvaluation,
-                        modifier = Modifier.fillMaxWidth()
+                    SeatCard(
+                        seat = presentation.opponent,
+                        modifier = Modifier.testTag(AiPanelTag),
+                        leading = {
+                            HeaderIconButton(
+                                icon = R.drawable.chevron_back,
+                                color = colorPalette.textSecondary,
+                                onClick = { backDispatcher?.onBackPressed() }
+                            )
+                        }
                     )
 
-                    PlayerCard(
-                        state = state,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    CommentaryStrip(commentary = presentation.commentary)
 
-                    GameActionBar(
-                        state = state,
-                        showReasoning = showReasoning,
-                        onToggleReasoning = { showReasoning = !showReasoning },
-                        onResign = { confirmingResign = true },
-                        onMenu = openMenu,
-                        onRematch = { scope.launch { state.rematch() } },
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    // The slack lives here, between the two chairs, so the rows below stay put.
+                    Spacer(modifier = Modifier.weight(1f))
 
-                    state.failure?.let { failure ->
-                        GameFailureCard(
-                            failure = failure,
-                            onRetry = { scope.launch { state.retry() } },
-                            onDismiss = state::dismissFailure,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                    SeatCard(seat = presentation.you)
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    actionBar(Modifier.fillMaxWidth())
                 }
             }
         } else {
             Column(
-                verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(windowInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top + WindowInsetsSides.Bottom).asPaddingValues())
-                    .padding(top = 28.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
+                    .padding(top = 20.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
             ) {
-                // Top Arena: Streamlined Opponent Card with integrated back navigation
-                AiPanel(
-                    state = state,
-                    onBack = { backDispatcher?.onBackPressed() },
-                    showReasoning = showReasoning,
-                    showEvaluation = showEvaluation,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                // Three weighted regions. Each one's height is a fixed share of what is left after
+                // insets and padding, so it is settled at measure time and no row appearing inside
+                // it can change it. That is the whole point: the board's position is a function of
+                // the window and nothing else, and it stays where the player last looked at it.
+                Box(
+                    contentAlignment = Alignment.BottomCenter,
+                    modifier = Modifier
+                        .weight(TopRegionWeight)
+                        .fillMaxWidth()
+                        .clipToBounds()
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
+                        SeatCard(
+                            seat = presentation.opponent,
+                            modifier = Modifier.testTag(AiPanelTag),
+                            leading = {
+                                HeaderIconButton(
+                                    icon = R.drawable.chevron_back,
+                                    color = colorPalette.textSecondary,
+                                    onClick = { backDispatcher?.onBackPressed() }
+                                )
+                            }
+                        )
 
-                // Center Arena: Fixed 1:1 Checkers Board with elegant rounded frame
+                        CommentaryStrip(commentary = presentation.commentary)
+                    }
+                }
+
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
+                        .weight(BoardRegionWeight)
                         .fillMaxWidth()
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(colorPalette.background1)
                 ) {
-                    board(Modifier.fillMaxSize())
+                    boardSurface(
+                        Modifier
+                            .fillMaxSize()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(colorPalette.background1)
+                    )
                 }
 
-                // Bottom Arena: Player Card + Action Toolbar + Failures
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Box(
+                    contentAlignment = Alignment.TopCenter,
+                    modifier = Modifier
+                        .weight(BottomRegionWeight)
+                        .fillMaxWidth()
+                        .clipToBounds()
                 ) {
-                    state.failure?.let { failure ->
-                        GameFailureCard(
-                            failure = failure,
-                            onRetry = { scope.launch { state.retry() } },
-                            onDismiss = state::dismissFailure,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                    // Fixed height, scrolling contents: the region cannot grow and shove the
+                    // board, and a failure card appearing cannot bury the resign button either.
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
+                        SeatCard(seat = presentation.you)
+
+                        actionBar(Modifier.fillMaxWidth())
                     }
-
-                    PlayerCard(
-                        state = state,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    GameActionBar(
-                        state = state,
-                        showReasoning = showReasoning,
-                        onToggleReasoning = { showReasoning = !showReasoning },
-                        onResign = { confirmingResign = true },
-                        onMenu = openMenu,
-                        onRematch = { scope.launch { state.rematch() } },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
             }
         }
+
+        // A failure floats over the board rather than joining the column.
+        //
+        // It is an interruption, not a fixture: giving it a place in the layout meant either
+        // shoving the board down to make room for it or hiding its "Try again" button below the
+        // fold, and that button is the entire reason the card exists.
+        failureCard(
+            Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 16.dp)
+                .widthIn(max = 480.dp)
+        )
     }
+
 
     if (confirmingResign) {
         ConfirmationDialog(
@@ -441,163 +473,50 @@ fun GameScreen(
     }
 }
 
-/** Top navigation bar with match turn counter, difficulty pill, rule tags, and material bar */
-@Composable
-private fun GameTopNavBar(
-    state: GameState,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val (colorPalette, typography) = LocalAppearance.current
-    val counts = state.counts
-    val humanPieces = counts.black
-    val aiPieces = counts.white
-    val totalPieces = (humanPieces + aiPieces).coerceAtLeast(1)
-    val humanFraction = (humanPieces.toFloat() / totalPieces).coerceIn(0.05f, 0.95f)
-
-    val materialDiff = humanPieces - aiPieces
-    val diffText = when {
-        materialDiff > 0 -> "+$materialDiff Pieces"
-        materialDiff < 0 -> "-${-materialDiff} Pieces"
-        else -> "Equal Material"
-    }
-
-    Column(
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = modifier.fillMaxWidth()
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            // Left: Back button + Turn counter + Material advantage badge
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                HeaderIconButton(
-                    icon = R.drawable.chevron_back,
-                    color = colorPalette.textSecondary,
-                    onClick = onBack
-                )
-
-                BasicText(
-                    text = "Turn ${state.turnNumber}",
-                    style = typography.s.semiBold
-                )
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(colorPalette.background1)
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    BasicText(
-                        text = diffText,
-                        style = typography.xxs.medium.secondary
-                    )
-                }
-            }
-
-            // Right: Difficulty pill + Active rule variant badge
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                // Difficulty pill
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colorPalette.background1)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    BasicText(
-                        text = state.difficulty.replaceFirstChar { it.uppercase() },
-                        style = typography.xxs.semiBold.copy(color = colorPalette.accent)
-                    )
-                }
-
-                // Rule variant badge if non-standard
-                state.rules?.let { r ->
-                    if (r.flyingKings || r.menCaptureBackwards) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(colorPalette.background1)
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            BasicText(
-                                text = if (r.flyingKings && r.menCaptureBackwards) "Flying & Back"
-                                else if (r.flyingKings) "Flying Kings"
-                                else "Back Jumps",
-                                style = typography.xxs.medium.secondary
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Live piece balance bar
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(3.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(colorPalette.background2)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(humanFraction)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(colorPalette.accent)
-            )
-        }
-    }
-}
+/**
+ * How the portrait screen is divided.
+ *
+ * The board's share is large because the board is what the screen is for; the two seats take a
+ * fixed cut of the remainder rather than as much as their contents happen to want. Weights rather
+ * than heights so the split survives a large font scale and a short screen, where fixed heights
+ * would clip the text or run the board off the bottom.
+ */
+private const val TopRegionWeight = 1f
+private const val BoardRegionWeight = 4f
+private const val BottomRegionWeight = 1.5f
 
 /**
- * Resign on a tap, everything else behind a long press - the same gesture the rest of the app uses
- * to reach a [Menu].
+ * A clock for the move in front of you, not for the match.
+ *
+ * The old one only ever paused and resumed, so what sat behind a clock icon next to the turn
+ * indicator was really the total time you had spent thinking all game. This restarts when the turn
+ * number changes, and remembers which turn it was last cleared for, so a rotation does not hand
+ * the player a free reset.
  */
-@ExperimentalFoundationApi
 @Composable
-private fun BoxScope.GameActions(
-    enabled: Boolean,
-    onResign: () -> Unit,
-    onMenu: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val (colorPalette) = LocalAppearance.current
+private fun rememberMoveClock(turnKey: Int, running: Boolean): Int {
+    var seconds by rememberSaveable { mutableIntStateOf(0) }
+    var clockedTurn by rememberSaveable { mutableIntStateOf(turnKey) }
 
-    Box(
-        modifier = modifier
-            .align(Alignment.BottomEnd)
-            .clip(RoundedCornerShape(16.dp))
-            .combinedClickable(
-                onClick = { if (enabled) onResign() else onMenu() },
-                onLongClick = onMenu
-            )
-            .background(colorPalette.primaryButton)
-            .size(62.dp)
-            .testTag(ResignButtonTag)
-    ) {
-        Image(
-            painter = painterResource(R.drawable.flag),
-            contentDescription = null,
-            colorFilter = ColorFilter.tint(
-                if (enabled) colorPalette.text else colorPalette.textDisabled
-            ),
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(20.dp)
-        )
+    LaunchedEffect(turnKey) {
+        if (clockedTurn != turnKey) {
+            clockedTurn = turnKey
+            seconds = 0
+        }
     }
+
+    LaunchedEffect(turnKey, running) {
+        if (!running) return@LaunchedEffect
+        while (true) {
+            delay(1000)
+            seconds++
+        }
+    }
+
+    return seconds
 }
 
-/** A stable identity for this install, minted once, so the AI can model one opponent over time. */
+/** A stable identity for this install, minted once, so the engine can model one opponent. */
 @Composable
 private fun rememberPlayerId(): String {
     var stored by rememberPreference(playerIdKey, "")

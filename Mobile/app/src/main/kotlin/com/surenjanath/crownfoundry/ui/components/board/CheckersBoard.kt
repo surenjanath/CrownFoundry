@@ -54,22 +54,21 @@ private var SemanticsPropertyReceiver.boardHintSquares by BoardHintSquares
 private var SemanticsPropertyReceiver.boardSelectableSquares by BoardSelectableSquares
 
 /** Where the centre of [square] falls on a board of [boardSizePx] pixels a side, already flipped. */
-fun squareCenter(square: Int, boardSizePx: Float, fromBlack: Boolean = true): Offset {
+fun squareCenter(square: Int, boardSizePx: Float): Offset {
     val cell = boardSizePx / Squares.SIDE
     return Offset(
-        x = (Squares.renderColOf(square, fromBlack) + 0.5f) * cell,
-        y = (Squares.renderRowOf(square, fromBlack) + 0.5f) * cell
+        x = (Squares.renderColOf(square) + 0.5f) * cell,
+        y = (Squares.renderRowOf(square) + 0.5f) * cell
     )
 }
 
 /** The square under a touch at [offset] on a board of [boardSizePx] a side, or 0 for none. */
-fun squareAtOffset(offset: Offset, boardSizePx: Float, fromBlack: Boolean = true): Int {
+fun squareAtOffset(offset: Offset, boardSizePx: Float): Int {
     if (boardSizePx <= 0f) return 0
     val cell = boardSizePx / Squares.SIDE
     return Squares.squareAtRendered(
         renderRow = floor(offset.y / cell).toInt(),
-        renderCol = floor(offset.x / cell).toInt(),
-        fromBlack = fromBlack
+        renderCol = floor(offset.x / cell).toInt()
     )
 }
 
@@ -91,8 +90,6 @@ fun CheckersBoard(
     lastMove: BoardTrace? = null,
     showHints: Boolean = true,
     enabled: Boolean = true,
-    /** False draws the board from White's side, which only pass-and-play ever asks for. */
-    fromBlack: Boolean = true,
     onAnimationEnd: () -> Unit = {},
     onSquareTap: (Int) -> Unit = {}
 ) {
@@ -157,12 +154,10 @@ fun CheckersBoard(
                     boardHintSquares = hints.toList()
                     boardSelectableSquares = selectable.toList()
                 }
-                // Keyed on the orientation too: a stale gesture handler would keep reading taps
-                // against the board as it was drawn before it turned round.
-                .pointerInput(enabled, fromBlack) {
+                .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     detectTapGestures { offset ->
-                        val square = squareAtOffset(offset, size.width.toFloat(), fromBlack)
+                        val square = squareAtOffset(offset, size.width.toFloat())
                         if (square != 0) onTap(square)
                     }
                 }
@@ -185,8 +180,8 @@ fun CheckersBoard(
             }
 
             lastMove?.let { trace ->
-                val from = squareCenter(trace.from, size.width, fromBlack)
-                val to = squareCenter(trace.to, size.width, fromBlack)
+                val from = squareCenter(trace.from, size.width)
+                val to = squareCenter(trace.to, size.width)
 
                 drawLine(
                     color = colorPalette.accent.copy(alpha = 0.16f),
@@ -208,7 +203,7 @@ fun CheckersBoard(
                         color = if (mustCapture) colorPalette.accent.copy(alpha = 0.55f)
                         else colorPalette.accent.copy(alpha = 0.22f),
                         radius = radius * 1.16f,
-                        center = squareCenter(square, size.width, fromBlack),
+                        center = squareCenter(square, size.width),
                         style = ring
                     )
                 }
@@ -218,14 +213,14 @@ fun CheckersBoard(
                 drawCircle(
                     color = colorPalette.accent,
                     radius = radius * 1.16f,
-                    center = squareCenter(it.square, size.width, fromBlack),
+                    center = squareCenter(it.square, size.width),
                     style = selectionRing
                 )
             }
 
             if (showHints) {
                 for (square in hints) {
-                    val center = squareCenter(square, size.width, fromBlack)
+                    val center = squareCenter(square, size.width)
                     drawCircle(
                         color = colorPalette.accent.copy(alpha = 0.25f),
                         radius = radius * 0.42f,
@@ -242,7 +237,7 @@ fun CheckersBoard(
                 }
 
                 for (square in threatened) {
-                    val center = squareCenter(square, size.width, fromBlack)
+                    val center = squareCenter(square, size.width)
                     val arm = radius * 0.62f
                     drawLine(
                         color = colorPalette.red.copy(alpha = 0.75f),
@@ -268,7 +263,7 @@ fun CheckersBoard(
                 if (piece.square == moverSquare) continue
 
                 drawPiece(
-                    center = squareCenter(piece.square, size.width, fromBlack),
+                    center = squareCenter(piece.square, size.width),
                     radius = radius,
                     fill = if (piece.isBlack) human else opponent,
                     ringColor = if (piece.isBlack) humanRing else opponentRing,
@@ -290,7 +285,7 @@ fun CheckersBoard(
                     if (life <= 0f) return@forEachIndexed
 
                     drawPiece(
-                        center = squareCenter(piece.square, size.width, fromBlack),
+                        center = squareCenter(piece.square, size.width),
                         radius = radius,
                         fill = if (piece.isBlack) human else opponent,
                         ringColor = if (piece.isBlack) humanRing else opponentRing,
@@ -306,8 +301,8 @@ fun CheckersBoard(
 
                 val hop = floor(progress).toInt().coerceIn(0, move.hops - 1)
                 val t = (progress - hop).coerceIn(0f, 1f)
-                val from = squareCenter(move.from(hop), size.width, fromBlack)
-                val to = squareCenter(move.to(hop), size.width, fromBlack)
+                val from = squareCenter(move.from(hop), size.width)
+                val to = squareCenter(move.to(hop), size.width)
                 val lift = if (move.captured.isNotEmpty()) sin(t * PI).toFloat() * cell * 0.18f else 0f
 
                 val resting = pieces.firstOrNull { it.square == move.destination }

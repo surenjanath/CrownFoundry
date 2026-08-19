@@ -141,48 +141,12 @@ class SquaresTest {
         assertEquals(0, Squares.squareAtRendered(3, 9))
     }
 
-    // --- White's side of the table, which only pass-and-play asks for ------------------------
-
     @Test
-    fun `the unflipped rendering mapping round-trips too`() {
-        for (square in Squares.all) {
-            val renderRow = Squares.renderRowOf(square, fromBlack = false)
-            val renderCol = Squares.renderColOf(square, fromBlack = false)
-
-            assertTrue(Squares.isOnBoard(renderRow, renderCol))
-            assertEquals(
-                "square $square renders at ($renderRow, $renderCol)",
-                square,
-                Squares.squareAtRendered(renderRow, renderCol, fromBlack = false)
-            )
-        }
-    }
-
-    @Test
-    fun `turning the board puts White at the bottom and keeps the dark squares dark`() {
-        for (square in Squares.all) {
-            val renderRow = Squares.renderRowOf(square, fromBlack = false)
-            val renderCol = Squares.renderColOf(square, fromBlack = false)
-
-            assertEquals(1, (renderRow + renderCol) % 2)
-        }
-
-        // The mirror image of the default: White's home rank is now the near side.
-        for (square in 21..32) assertTrue(Squares.renderRowOf(square, fromBlack = false) >= 5)
-        for (square in 1..12) assertTrue(Squares.renderRowOf(square, fromBlack = false) <= 2)
-    }
-
-    @Test
-    fun `the two orientations are exact opposites`() {
-        for (square in Squares.all) {
-            assertEquals(
-                Squares.SIDE - 1 - Squares.renderRowOf(square),
-                Squares.renderRowOf(square, fromBlack = false)
-            )
-            assertEquals(
-                Squares.SIDE - 1 - Squares.renderColOf(square),
-                Squares.renderColOf(square, fromBlack = false)
-            )
-        }
+    fun `there is exactly one orientation`() {
+        // Black's home rank is always nearest the player, whoever is to move. Nothing in the app
+        // may draw the board the other way up: a board that turned over mid-game read as the
+        // pieces swapping colour rather than as the board turning.
+        for (square in 1..12) assertTrue(Squares.renderRowOf(square) >= 5)
+        for (square in 21..32) assertTrue(Squares.renderRowOf(square) <= 2)
     }
 }

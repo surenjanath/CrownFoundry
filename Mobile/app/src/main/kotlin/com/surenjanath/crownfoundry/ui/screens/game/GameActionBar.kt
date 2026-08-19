@@ -39,7 +39,8 @@ import com.surenjanath.crownfoundry.utils.semiBold
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GameActionBar(
-    state: GameState,
+    isOver: Boolean,
+    event: GameEvent?,
     showReasoning: Boolean,
     onToggleReasoning: () -> Unit,
     onResign: () -> Unit,
@@ -59,7 +60,7 @@ fun GameActionBar(
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         // Left: Resign or Rematch
-        if (state.isOver) {
+        if (isOver) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -107,29 +108,17 @@ fun GameActionBar(
             }
         }
 
-        // Center: Match status chip
-        val statusText = when {
-            state.phase == GamePhase.Loading -> "Setting up..."
-            state.isOver -> when (state.winner) {
-                com.surenjanath.crownfoundry.api.Side.HUMAN ->
-                    if (state.mode.isPassAndPlay) "Black won" else "Victory! 🎉"
-
-                com.surenjanath.crownfoundry.api.Side.AI ->
-                    if (state.mode.isPassAndPlay) "White won" else "AI Won"
-                com.surenjanath.crownfoundry.api.Side.DRAW -> "Draw Game"
-                else -> "Game Finished"
-            }
-            state.mustCapture -> "Capture is mandatory!"
-            state.phase == GamePhase.Thinking -> "AI is analyzing..."
-            state.sideToMove == com.surenjanath.crownfoundry.api.Side.HUMAN ->
-                if (state.mode.isPassAndPlay) "Black to move" else "Your turn"
-            else -> if (state.mode.isPassAndPlay) "White to move" else "Opponent's turn"
-        }
-
+        // Centre: the one thing worth announcing, and nothing when there is nothing.
+        //
+        // Whose turn it is used to live here as well as on both seat cards. The seats keep it; a
+        // bar that also said "Your turn" was the same sentence in a third place.
         BasicText(
-            text = statusText,
-            style = if (state.mustCapture) typography.xs.semiBold.copy(color = colorPalette.accent)
-            else typography.xs.medium.secondary,
+            text = event?.text ?: " ",
+            style = if (event?.urgent == true) {
+                typography.xs.semiBold.copy(color = colorPalette.accent)
+            } else {
+                typography.xs.medium.secondary
+            },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

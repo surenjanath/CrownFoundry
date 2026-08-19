@@ -17,9 +17,9 @@ import org.junit.Test
 /**
  * The turn machine with nobody to wait for.
  *
- * Two differences, and this file is both of them: the opponent is never asked for a move, and the
- * board turns to face whoever is to play - but only once the move that changed hands has finished
- * animating, because rotating mid-slide reads as a glitch rather than as handing the phone over.
+ * One difference, and this file is it: no opponent turn is ever requested, so the board simply
+ * stays live for whichever side the rules say is to move. The board is drawn from Black's side in
+ * both modes and never turns - a board on a table does not spin round between turns.
  */
 class PassAndPlayStateTest {
 
@@ -91,23 +91,7 @@ class PassAndPlayStateTest {
     }
 
     @Test
-    fun `the board turns over only once the move has finished animating`() = runTest {
-        val api = FakeCheckersApi()
-        val state = stateWith(api)
-
-        state.begin(null)
-        assertEquals(Side.BLACK, state.viewpoint)
-
-        state.play("11-15")
-        // The piece is still sliding across the board the player is looking at.
-        assertEquals(Side.BLACK, state.viewpoint)
-
-        state.clearAnimation()
-        assertEquals(Side.WHITE, state.viewpoint)
-    }
-
-    @Test
-    fun `a resumed game opens facing the player to move`() = runTest {
+    fun `a resumed game on White's move is White's to play, not the engine's`() = runTest {
         val api = FakeCheckersApi().apply {
             matchOutcome = Outcome.Success(
                 Fixtures.initialMatch.copy(
@@ -119,22 +103,18 @@ class PassAndPlayStateTest {
         val state = stateWith(api)
         state.begin(Fixtures.MATCH_ID)
 
-        assertEquals(Side.WHITE, state.viewpoint)
         assertEquals(0, api.aiCalls)
         assertTrue(state.acceptsTaps)
     }
 
     @Test
-    fun `against the engine nothing about the board moves`() = runTest {
+    fun `against the engine the opponent still answers`() = runTest {
         val api = FakeCheckersApi()
         val state = GameState(api = api, difficulty = "adaptive", playerId = null)
 
         state.begin(null)
         state.play("11-15")
-        state.clearAnimation()
 
-        // The engine game is played entirely from Black's side of the table, as it always was.
-        assertEquals(Side.BLACK, state.viewpoint)
         assertFalse(state.mode.isPassAndPlay)
         assertTrue(api.aiCalls > 0)
     }
