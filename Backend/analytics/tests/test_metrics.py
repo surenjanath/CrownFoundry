@@ -246,3 +246,21 @@ class AnalyticsMetricsTest(TestCase):
         badges = milestones()
         self.assertGreater(len(badges), 0)
         self.assertTrue(any(b["id"] == "first_match" and b["unlocked"] for b in badges))
+
+    def test_variant_performance_buckets_from_rules_data(self):
+        from analytics.metrics import variant_performance
+
+        cases = [
+            ({}, "Full Modern (Flying + Back)"),
+            ({"flying_kings": True, "men_capture_backwards": True}, "Full Modern (Flying + Back)"),
+            ({"flying_kings": True, "men_capture_backwards": False}, "Flying Kings"),
+            ({"flying_kings": False, "men_capture_backwards": True}, "Men Capture Backwards"),
+            ({"flying_kings": False, "men_capture_backwards": False}, "Standard English Draughts"),
+        ]
+        for rules, bucket in cases:
+            match = self.create_match(winner=AI_SIDE)
+            match.rules_data = rules
+            match.save()
+            rows = {row["variant"]: row for row in variant_performance([match])}
+            self.assertEqual(rows[bucket]["total_matches"], 1, bucket)
+            Match.objects.all().delete()

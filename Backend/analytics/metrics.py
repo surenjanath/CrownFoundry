@@ -241,8 +241,8 @@ def variant_performance(matches: list | None = None) -> list[dict]:
     }
 
     for m in matches:
-        fk = getattr(m, "flying_kings", False)
-        mcb = getattr(m, "men_capture_backwards", False)
+        rules = m.variant_rules
+        fk, mcb = rules.flying_kings, rules.men_capture_backwards
         if fk and mcb:
             groups["Full Modern (Flying + Back)"].append(m)
         elif fk:

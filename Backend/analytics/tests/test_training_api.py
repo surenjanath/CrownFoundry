@@ -82,3 +82,19 @@ class TrainingApiTests(TestCase):
         self.assertTrue(data.get("ok"))
         self.assertIn("frequencies", data)
 
+    def test_dashboard_exposes_rules_data_flags(self):
+        from game.models import Match, PlayerProfile
+
+        player = PlayerProfile.objects.create()
+        Match.objects.create(
+            player=player,
+            status=Match.STATUS_FINISHED,
+            winner="white",
+            rules_data={"flying_kings": False, "men_capture_backwards": False},
+        )
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.context["raw_json"])
+        self.assertEqual(payload["matches"][0]["flying_kings"], False)
+        self.assertEqual(payload["matches"][0]["men_capture_backwards"], False)
+

@@ -59,8 +59,8 @@ def dashboard(request):
                     "total_turns": m.total_turns,
                     "ai_captures": m.ai_captures,
                     "human_captures": m.human_captures,
-                    "flying_kings": getattr(m, "flying_kings", False),
-                    "men_capture_backwards": getattr(m, "men_capture_backwards", False),
+                    "flying_kings": m.variant_rules.flying_kings,
+                    "men_capture_backwards": m.variant_rules.men_capture_backwards,
                 }
             )
     except Exception:
