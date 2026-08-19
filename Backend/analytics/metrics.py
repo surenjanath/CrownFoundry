@@ -629,6 +629,7 @@ def simulate_ai_match(
         explore=False,
         max_plies=max_plies,
         record=True,
+        rules=rules,
     )
 
     trajectory = [
