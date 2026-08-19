@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.surenjanath.crownfoundry.R
@@ -191,6 +192,15 @@ fun SeatCard(
                 )
             }
 
+            // Read out as a sentence rather than as two loose numbers: a dot, "12" and "2" tells
+            // a screen reader nothing about whose men they are or which of them wear crowns.
+            val material = buildString {
+                append("${seat.name}: ${seat.pieces} ${if (seat.pieces == 1) "piece" else "pieces"}")
+                if (seat.kings > 0) {
+                    append(", ${seat.kings} ${if (seat.kings == 1) "king" else "kings"}")
+                }
+            }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -198,6 +208,7 @@ fun SeatCard(
                     .clip(RoundedCornerShape(8.dp))
                     .background(colorPalette.background2)
                     .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .clearAndSetSemantics { contentDescription = material }
             ) {
                 Spacer(
                     modifier = Modifier

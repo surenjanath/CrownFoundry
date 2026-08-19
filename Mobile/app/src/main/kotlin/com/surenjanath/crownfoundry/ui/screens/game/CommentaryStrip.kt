@@ -13,13 +13,17 @@ import com.surenjanath.crownfoundry.utils.secondary
 
 const val AiThinkingTag = "aiThinking"
 
+/** How much of the opponent's sentence gets to be read without it moving anything. */
+private const val COMMENTARY_LINES = 2
+
 /**
- * What the opponent is thinking, in one line.
+ * What the opponent is thinking.
  *
- * The line exists from the first frame and never changes height - only what fills it changes, from
- * nothing, to a shimmer while the search runs, to the sentence it wrote afterwards. A slot that
- * appeared when the opponent found something to say would push the board down the screen at the
- * exact moment the player is looking at it.
+ * Two lines, from the first frame, whatever is in them - a shimmer while the search runs, the
+ * sentence it wrote afterwards, or nothing at all. Two rather than one because the opponent
+ * explaining itself is the point of the whole app and most of what it writes did not fit in one;
+ * fixed rather than growing because a slot that expanded when it found something to say would push
+ * the board down the screen at the exact moment the player is looking at it.
  *
  * It is the only place the opponent's reasoning is shown, and the only place the screen says the
  * opponent is thinking; the action bar deliberately stays quiet about both.
@@ -40,23 +44,26 @@ fun CommentaryStrip(
             BasicText(
                 text = "Analyzing next move…",
                 style = typography.xxs.medium.copy(color = colorPalette.accent),
-                maxLines = 1
+                minLines = COMMENTARY_LINES,
+                maxLines = COMMENTARY_LINES
             )
         }
 
         is Commentary.Said -> BasicText(
             text = commentary.text,
             style = typography.xxs.medium.secondary,
-            maxLines = 1,
+            minLines = COMMENTARY_LINES,
+            maxLines = COMMENTARY_LINES,
             overflow = TextOverflow.Ellipsis,
             modifier = modifier.fillMaxWidth()
         )
 
-        // The empty case still draws a line's worth of nothing, which is the whole point.
+        // The empty case still draws its two lines of nothing, which is the whole point.
         is Commentary.Silent -> BasicText(
             text = " ",
             style = typography.xxs.medium.secondary,
-            maxLines = 1,
+            minLines = COMMENTARY_LINES,
+            maxLines = COMMENTARY_LINES,
             modifier = modifier.fillMaxWidth()
         )
     }

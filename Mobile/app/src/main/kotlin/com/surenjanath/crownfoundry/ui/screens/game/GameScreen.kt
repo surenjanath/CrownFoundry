@@ -497,6 +497,7 @@ private fun GameTopRail(
         HeaderIconButton(
             icon = R.drawable.chevron_back,
             color = colorPalette.text,
+            contentDescription = "Leave the board",
             onClick = onBack
         )
 
