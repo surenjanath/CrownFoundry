@@ -42,6 +42,9 @@ fun GameActionBar(
     isOver: Boolean,
     event: GameEvent?,
     showReasoning: Boolean,
+    hintEnabled: Boolean,
+    hintShowing: Boolean,
+    onHint: () -> Unit,
     onToggleReasoning: () -> Unit,
     onResign: () -> Unit,
     onMenu: () -> Unit,
@@ -128,6 +131,33 @@ fun GameActionBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // Ask the engine what it would play. Lit while its answer is on the board, so a second
+            // tap reads as putting the arrow away rather than as asking the same question twice.
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = hintEnabled, onClick = onHint)
+                    .background(
+                        if (hintShowing) colorPalette.accent.copy(alpha = 0.2f)
+                        else colorPalette.background2
+                    )
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.help),
+                    contentDescription = if (hintShowing) "Hide the hint" else "Hint",
+                    colorFilter = ColorFilter.tint(
+                        when {
+                            hintShowing -> colorPalette.accent
+                            hintEnabled -> colorPalette.textSecondary
+                            else -> colorPalette.textDisabled
+                        }
+                    ),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+
             // Commentary speech toggle
             Box(
                 contentAlignment = Alignment.Center,

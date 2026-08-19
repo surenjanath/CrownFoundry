@@ -21,6 +21,7 @@ import com.surenjanath.crownfoundry.ui.components.board.BoardTrace
 import com.surenjanath.crownfoundry.ui.components.board.MoveTree
 import com.surenjanath.crownfoundry.ui.components.board.TapResult
 import com.surenjanath.crownfoundry.ui.components.board.resolveTap
+import kotlin.coroutines.cancellation.CancellationException
 
 enum class GamePhase {
     /** Nothing asked of the referee yet. */
@@ -102,6 +103,7 @@ class GameState(
     private val playerId: String? = null,
     val rules: MatchRulesDto? = null,
     val mode: GameMode = GameMode.VersusEngine,
+    private val hinter: Hinter = EngineHinter,
     private val onMatchIdChanged: (String?) -> Unit = {}
 ) {
     var matchId by mutableStateOf<String?>(null)
@@ -157,6 +159,17 @@ class GameState(
         private set
 
     var aiTurns by mutableStateOf(0)
+        private set
+
+    /** The move the engine would play in your seat, once you have asked it. Cleared by moving. */
+    var hint by mutableStateOf<String?>(null)
+        private set
+
+    var hinting by mutableStateOf(false)
+        private set
+
+    /** Said out loud when the device has no engine to ask, rather than a button that does nothing. */
+    var hintUnavailable by mutableStateOf(false)
         private set
 
     val counts: PieceCounts get() = PieceCounts.of(pieces)
@@ -355,6 +368,37 @@ class GameState(
         failure = null
     }
 
+    /**
+     * Ask the engine what it would play from here.
+     *
+     * Only while the board is actually yours to touch - a hint during the opponent's turn would be
+     * advice about a position that is about to stop existing.
+     */
+    suspend fun requestHint() {
+        if (!acceptsTaps || hinting) return
+
+        hinting = true
+        hintUnavailable = false
+
+        val suggested = try {
+            hinter.bestMove(fen, rules)
+        } catch (cancellation: CancellationException) {
+            hinting = false
+            throw cancellation
+        } catch (failure: Exception) {
+            null
+        }
+
+        hint = suggested
+        hintUnavailable = suggested == null
+        hinting = false
+    }
+
+    fun clearHint() {
+        hint = null
+        hintUnavailable = false
+    }
+
     fun clearAnimation() {
         animation = null
     }
@@ -379,6 +423,10 @@ class GameState(
     // --- internals -------------------------------------------------------------------------------
 
     private fun adopt(board: BoardDto, moves: List<MoveDto>) {
+        // A hint is advice about one position. The moment the position changes it is wrong, and a
+        // stale arrow pointing at a piece that has moved is worse than no arrow at all.
+        hint = null
+        hintUnavailable = false
         pieces = board.pieces
         fen = board.fen
         sideToMove = board.sideToMove

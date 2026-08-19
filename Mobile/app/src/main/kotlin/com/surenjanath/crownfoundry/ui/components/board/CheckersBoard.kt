@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -88,6 +89,8 @@ fun CheckersBoard(
     selection: BoardSelection? = null,
     animation: BoardAnimation? = null,
     lastMove: BoardTrace? = null,
+    /** The engine's advice for the side to move, drawn so it cannot be read as a played move. */
+    suggestion: BoardTrace? = null,
     showHints: Boolean = true,
     enabled: Boolean = true,
     onAnimationEnd: () -> Unit = {},
@@ -177,6 +180,37 @@ fun CheckersBoard(
                         size = Size(cell, cell)
                     )
                 }
+            }
+
+            // Drawn under the pieces and over the squares, dashed and at full accent, so it reads
+            // as something being proposed rather than as the faint trace of a move already made.
+            suggestion?.let { advice ->
+                val from = squareCenter(advice.from, size.width)
+                val to = squareCenter(advice.to, size.width)
+
+                drawLine(
+                    color = colorPalette.accent,
+                    start = from,
+                    end = to,
+                    strokeWidth = cell * 0.06f,
+                    cap = StrokeCap.Round,
+                    pathEffect = PathEffect.dashPathEffect(
+                        floatArrayOf(cell * 0.16f, cell * 0.12f)
+                    )
+                )
+
+                drawCircle(
+                    color = colorPalette.accent,
+                    radius = radius * 0.95f,
+                    center = from,
+                    style = Stroke(width = cell * 0.055f)
+                )
+
+                drawCircle(
+                    color = colorPalette.accent,
+                    radius = radius * 0.42f,
+                    center = to
+                )
             }
 
             lastMove?.let { trace ->

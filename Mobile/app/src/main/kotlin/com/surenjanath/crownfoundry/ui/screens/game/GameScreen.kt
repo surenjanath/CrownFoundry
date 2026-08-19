@@ -65,6 +65,8 @@ import com.surenjanath.crownfoundry.ui.components.LocalMenuState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.surenjanath.crownfoundry.ui.components.board.CheckersBoard
+import com.surenjanath.crownfoundry.ui.screens.matches.Fen
+import com.surenjanath.crownfoundry.ui.components.board.BoardTrace
 import com.surenjanath.crownfoundry.ui.components.board.TapResult
 import com.surenjanath.crownfoundry.ui.components.themed.ConfirmationDialog
 import com.surenjanath.crownfoundry.ui.components.themed.Header
@@ -179,6 +181,7 @@ fun GameScreen(
     }
 
     var confirmingResign by rememberSaveable { mutableStateOf(false) }
+    var showingConsidered by rememberSaveable { mutableStateOf(false) }
     var dismissedGameOver by rememberSaveable { mutableStateOf(false) }
 
     fun buzz(type: HapticFeedbackType) {
@@ -220,6 +223,19 @@ fun GameScreen(
                         menuState.hide()
                         dismissedGameOver = false
                         scope.launch { state.rematch() }
+                    }
+                )
+
+                MenuEntry(
+                    icon = R.drawable.brain,
+                    text = "What it considered",
+                    secondaryText = state.evaluation?.considered?.size
+                        ?.let { "$it moves it weighed on its last turn" }
+                        ?: "It has not moved yet",
+                    enabled = !state.evaluation?.considered.isNullOrEmpty(),
+                    onClick = {
+                        menuState.hide()
+                        showingConsidered = true
                     }
                 )
 
@@ -266,6 +282,7 @@ fun GameScreen(
             selection = state.selection,
             animation = state.animation,
             lastMove = state.lastMove,
+            suggestion = state.hint?.let(::traceOf),
             showHints = showLegalMoves,
             enabled = state.acceptsTaps,
             onAnimationEnd = state::clearAnimation,
@@ -279,6 +296,12 @@ fun GameScreen(
             isOver = state.isOver,
             event = presentation.event,
             showReasoning = showReasoning,
+            hintEnabled = state.acceptsTaps && !state.hinting,
+            hintShowing = state.hint != null,
+            onHint = {
+                if (state.hint != null) state.clearHint()
+                else scope.launch { state.requestHint() }
+            },
             onToggleReasoning = { showReasoning = !showReasoning },
             onResign = { confirmingResign = true },
             onMenu = openMenu,
@@ -445,6 +468,14 @@ fun GameScreen(
     }
 
 
+    if (showingConsidered) {
+        ConsideredDialog(
+            considered = state.evaluation?.considered.orEmpty(),
+            played = state.lastAiMove,
+            onDismiss = { showingConsidered = false }
+        )
+    }
+
     if (confirmingResign) {
         ConfirmationDialog(
             text = if (mode.isPassAndPlay) {
@@ -471,6 +502,18 @@ fun GameScreen(
             }
         )
     }
+}
+
+/**
+ * A move notation as two ends of an arrow.
+ *
+ * Reuses the review screen's parser rather than growing a second one - "11-15" and "11x18x25" are
+ * read the same way wherever they appear, and a multi-jump is drawn from where it started to where
+ * it finished.
+ */
+private fun traceOf(notation: String): BoardTrace? {
+    val squares = Fen.squaresOfMove(notation)
+    return if (squares.size >= 2) BoardTrace(squares.first(), squares.last()) else null
 }
 
 /**

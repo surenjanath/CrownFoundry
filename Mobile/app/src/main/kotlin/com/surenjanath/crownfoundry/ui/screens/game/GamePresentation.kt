@@ -170,6 +170,10 @@ private fun GameState.eventOf(passAndPlay: Boolean): GameEvent? = when {
 
     mustCapture -> GameEvent("Capture is mandatory", urgent = true)
 
+    // Lowest priority, and only until the next thing happens: a button that appears to do
+    // nothing is worse than one that says why it cannot.
+    hintUnavailable -> GameEvent("No engine on this device to ask")
+
     else -> null
 }
 
