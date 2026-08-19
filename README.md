@@ -92,6 +92,8 @@ When the opponent moves, an integrated local LLM bridge (via **Ollama**) transla
 - **Puzzles From Your Own Games**: The mistakes the analysis finds become practice positions — a real position you reached, with a move you could have played at the time. Revealing the answer is a dead end on purpose: it counts as an attempt and never as a solve.
 - **PDN Export**: Any game shares out as Portable Draughts Notation, the format every other draughts program reads, so a match does not end its life inside this app.
 - **Pass and Play**: Two players, one phone. The board turns to face whoever is to move once their opponent's move has finished animating. It is the one thing here that needs no engine at all, so it works on a device that has never been online — and nothing it produces reaches the trainer, the outbox, the opponent model or the engine's win rate.
+- **Ask It What You Should Play**: The policy on the device is only ever pointed at beating you; pointed the other way it will tell you what it would play in your seat. The hint button asks it and draws the answer on the board — a ring on the piece, a dashed arrow to the square. It searches a ply deeper than the opponent plays at, with the risk bonus off, because a hint is advice rather than a personality. It runs on the device, so it costs nothing and works with no connection.
+- **See What It Nearly Played**: Every AI turn comes back with the shortlist attached — every move it weighed and what it scored each one. "It played 24-19" is a fact; "it played 24-19 over 23-18 by four hundredths" is what tells you the position was close. The ranking is shown with the gap from its pick, because the raw scores only mean anything against each other in that one position.
 - **Adaptive Opponent Profiling**: Dynamically tracks player aggression, king-rush tendencies, and capture rates to customize search depth and exploration.
 - **Natural Language Move Commentary**: Bridges to a local **Ollama** LLM instance (e.g. `qwen3.5:9b` or `llama3`) to explain strategic reasoning behind each chosen move; gracefully falls back to deterministic heuristic narratives if offline.
 - **Bespoke Jetpack Compose UI**: Fast, fluid Android interface adapted from ViMusic's design system — custom fluid theming, animated piece hops and jump arcs, coronation effects, and zero boilerplate Material bloat.
@@ -339,7 +341,7 @@ python tools/perft.py --depth 8
 python tools/e2e_smoke.py
 ```
 
-### 4. Mobile Client Unit Tests (360 Tests)
+### 4. Mobile Client Unit Tests (394 Tests)
 
 ```bash
 cd Mobile

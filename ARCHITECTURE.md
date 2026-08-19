@@ -510,6 +510,26 @@ A pass-and-play match is marked on the stored match (`mode`) and beside the resu
 opponent profile, and the engine's own win rate — a game the agent did not play is not training
 data, and importing one would train the shared policy on moves the agent never chose.
 
+**The game screen's layout rule.** The board's geometry is a function of the window and nothing
+else. Portrait is three weighted regions - `TopRegionWeight` / `BoardRegionWeight` /
+`BottomRegionWeight` in `GameScreen.kt` - so each height is a fixed share of what is left after
+insets and padding, settled at measure time, and the board is the largest square that fits the
+middle one. Nothing inside a region may change that region's height. This is load-bearing: the
+board previously moved 91px mid-game when the opponent's card grew, and per-widget height
+reservation was tried first and was not enough. The cards hold their own height too, by drawing
+empty rows rather than adding rows, and an invisible row leaves the semantics tree so a screen
+reader does not read it out.
+
+Everything the screen derives is computed once in `GamePresentation.kt` - plain Kotlin, no Compose,
+unit-tested beside the turn machine - because whose turn it is, what each side is called and how
+many pieces have come off were previously derived independently in four composables.
+
+**Hints** (`:app` `ui/screens/game/Hinter.kt`). The same on-device policy, asked what it would play
+in the human's seat: depth 5 rather than the opponent's 4, and `applyRiskBonus = false`, because a
+hint is advice rather than a style. `Hinter` is an interface so `GameState` never reaches for the
+installed policy directly and stays JVM-testable. A hint belongs to one position and is cleared by
+`adopt`, which every move goes through.
+
 **PDN export** (`:engine` `Pdn.kt`, `:app` `ui/screens/matches/PdnExport.kt`). Review shares a game
 as Portable Draughts Notation, as text rather than a file. Black moves first, so move 1 pairs Black
 then White; `Result` is still written from White's side, so a game the human won exports as `0-1`.

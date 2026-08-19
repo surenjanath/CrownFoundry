@@ -40,8 +40,11 @@ python tools/perft.py --depth 8
 cd Backend && .venv/bin/python manage.py runserver &
 python tools/e2e_smoke.py
 
-# Mobile unit tests (360 across :engine, :api, :app)
-cd Mobile && ./gradlew :engine:test :api:testDebugUnitTest :app:testDebugUnitTest
+# Mobile unit tests (394 across :engine, :api, :app)
+cd Mobile && ./gradlew :engine:testDebugUnitTest :api:testDebugUnitTest :app:testDebugUnitTest
+
+# Instrumented tests, on a running emulator or device
+cd Mobile && ./gradlew :app:connectedDebugAndroidTest
 
 # Mobile APK
 cd Mobile && ./gradlew :app:assembleDebug
