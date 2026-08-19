@@ -12,7 +12,7 @@ from django.test import TestCase
 from ai import service, tasks
 from ai.agent import clear_policy_cache, reset_shared_replay
 from ai.models import DEFAULT_ELO, AIMoveMemory, RLPolicyWeights, TrainingRun
-from ai.service import AITurnResult, ScoredMove
+from ai.service import AITurnResult, ScoredMove, clear_ai_status_cache
 from game.engine.board import Board
 from game.engine.notation import BLACK, WHITE
 from game.models import GameState, Match, PlayerProfile
@@ -30,8 +30,10 @@ class ServiceTestCase(TestCase):
 
         clear_policy_cache()
         reset_shared_replay()
+        clear_ai_status_cache()
         self.addCleanup(clear_policy_cache)
         self.addCleanup(reset_shared_replay)
+        self.addCleanup(clear_ai_status_cache)
 
         overrides = cf(REPLAY_PATH=str(self.replay_path), TASKS_EAGER=True, OLLAMA_ENABLED=False)
         overrides.enable()
@@ -60,6 +62,19 @@ class ServiceTestCase(TestCase):
         match.store_board(board)
         match.save()
         return board, state
+
+    def test_ai_status_is_cached_for_five_seconds(self):
+        from ai import service as svc
+
+        svc.clear_ai_status_cache()
+        with mock.patch.object(svc, "_compute_ai_status", wraps=svc._compute_ai_status) as compute:
+            with mock.patch("ai.service.time.monotonic", side_effect=[10.0, 12.0, 16.0]):
+                first = svc.ai_status()
+                second = svc.ai_status()
+                third = svc.ai_status()
+        self.assertEqual(first, second)
+        self.assertEqual(second, third)
+        self.assertEqual(compute.call_count, 2)
 
 
 class AiTurnTests(ServiceTestCase):
