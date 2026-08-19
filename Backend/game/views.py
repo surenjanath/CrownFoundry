@@ -71,9 +71,13 @@ def endpoint(*methods):
                 return exc.response()
             except ParseError as exc:
                 return ApiError("invalid_json", str(exc.detail)).response()
-            except Exception as exc:
+            except Exception:
                 logger.exception("unhandled error in %s", view.__name__)
-                return ApiError("computation_error", str(exc), status=500).response()
+                return ApiError(
+                    "computation_error",
+                    "The server could not complete that request.",
+                    status=500,
+                ).response()
 
         wrapper.__name__ = view.__name__
         wrapper.__doc__ = view.__doc__

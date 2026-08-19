@@ -28,6 +28,10 @@ def apply_production_guards(*, debug: bool, secret_key: str) -> None:
         raise ImproperlyConfigured("Set CROWNFOUNDRY_SECRET_KEY when DEBUG is false.")
 
 
+def cors_allow_all(debug: bool) -> bool:
+    return debug
+
+
 SECRET_KEY = os.environ.get("CROWNFOUNDRY_SECRET_KEY", INSECURE_DEV_SECRET)
 
 DEBUG = _env_bool("CROWNFOUNDRY_DEBUG", True)
@@ -140,7 +144,7 @@ REST_FRAMEWORK = {
     "UNAUTHENTICATED_USER": None,
 }
 
-CORS_ALLOW_ALL_ORIGINS = DEBUG
+CORS_ALLOW_ALL_ORIGINS = cors_allow_all(DEBUG)
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get("CROWNFOUNDRY_CORS_ORIGINS", "").split(",")

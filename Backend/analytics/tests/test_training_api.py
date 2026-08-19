@@ -119,6 +119,35 @@ class TrainingApiTests(TestCase):
         self.assertEqual(data["error"], "invalid_field")
         self.assertIn("detail", data)
 
+    def test_simulate_clamps_max_plies_to_server_range(self):
+        fake = {
+            "ok": True,
+            "winner": "draw",
+            "total_plies": 0,
+            "elapsed_s": 0.01,
+            "trajectory": [{"turn": 0}],
+        }
+        with patch("analytics.metrics.simulate_ai_match", return_value=fake) as simulate:
+            for raw, expected in ((10, 20), (999, 240)):
+                response = self.client.post(
+                    "/api/analytics/simulate-match/",
+                    data=json.dumps(
+                        {"black_agent": "random", "white_agent": "greedy", "max_plies": raw}
+                    ),
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 200, raw)
+                data = response.json()
+                self.assertTrue(data.get("ok"))
+                self.assertIn("total_plies", data)
+                self.assertIn("elapsed_s", data)
+                simulate.assert_called_with(
+                    black_type="random",
+                    white_type="greedy",
+                    max_plies=expected,
+                    rules_dict=None,
+                )
+
     def test_evaluate_invalid_fen_is_400(self):
         response = self.client.post(
             "/api/analytics/evaluate-position/",
@@ -146,8 +175,8 @@ class TrainingApiTests(TestCase):
                 self.assertEqual(response.status_code, 403, path)
                 self.assertEqual(response.json()["error"], "forbidden")
 
-        response = self.client.get("/api/analytics/summary/")
-        self.assertEqual(response.status_code, 200)
+            response = self.client.get("/api/analytics/summary/")
+            self.assertEqual(response.status_code, 200)
 
     def test_dashboard_token_must_match(self):
         from django.test import override_settings

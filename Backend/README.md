@@ -101,6 +101,10 @@ and in production without edits.
 | `CROWNFOUNDRY_DASHBOARD_TOKEN` | empty | Required on train/simulate/evaluate when DEBUG is false |
 | `CROWNFOUNDRY_CORS_ORIGINS`    | empty | Comma-separated browser origins when DEBUG is false |
 
+When `DEBUG` is false, dashboard Train / Simulate / Evaluate POSTs require the header
+`X-Dashboard-Token: <CROWNFOUNDRY_DASHBOARD_TOKEN>`. The HTML dashboard page itself does
+not send that header, so those buttons need curl (or a tokened client) in production.
+
 ## The API
 
 Base path `/api/`, JSON in and out. Every response carries `"ok"`; errors are

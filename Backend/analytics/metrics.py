@@ -178,23 +178,21 @@ def ai_performance() -> dict:
         logger.exception("could not read match history")
         matches = []
 
+    try:
+        mistakes = _mistake_counts([m.pk for m in matches])
+    except Exception:
+        logger.exception("could not read move memories")
+        mistakes = {}
+
+    summary = build_summary(matches, mistakes)
+
     win_rate_series: list[dict] = []
     game_length_series: list[dict] = []
     mistake_series: list[dict] = []
     capture_series: list[dict] = []
 
     results: list[str] = []
-    ai_wins = human_wins = draws = 0
-    total_turns = 0
-    total_ai_captures = total_human_captures = 0
-    total_repeated = total_moves = 0
-    games_to_50 = None
-
-    try:
-        mistakes = _mistake_counts([m.pk for m in matches])
-    except Exception:
-        logger.exception("could not read move memories")
-        mistakes = {}
+    ai_wins = 0
 
     for index, match in enumerate(matches, start=1):
         winner = match.winner
@@ -202,20 +200,14 @@ def ai_performance() -> dict:
             ai_wins += 1
             result = "win"
         elif winner == DRAW:
-            draws += 1
             result = "draw"
         else:
-            human_wins += 1
             result = "loss"
         results.append(result)
 
         window = results[-ROLLING_WINDOW:]
         rolling = window.count("win") / len(window)
         cumulative = ai_wins / index
-        # "How many games it took to cross 50%" only means something once a full window exists;
-        # a single win on match one is not a 100% win rate in any useful sense.
-        if games_to_50 is None and index >= ROLLING_WINDOW and rolling >= 0.5:
-            games_to_50 = index
 
         win_rate_series.append(
             {
@@ -227,12 +219,9 @@ def ai_performance() -> dict:
         )
 
         turns = int(getattr(match, "total_turns", 0) or 0)
-        total_turns += turns
         game_length_series.append({"match_index": index, "turns": turns})
 
         repeated, moves = mistakes.get(match.pk, (0, 0))
-        total_repeated += repeated
-        total_moves += moves
         mistake_series.append(
             {
                 "match_index": index,
@@ -243,14 +232,9 @@ def ai_performance() -> dict:
 
         ai_caps = int(getattr(match, "ai_captures", 0) or 0)
         human_caps = int(getattr(match, "human_captures", 0) or 0)
-        total_ai_captures += ai_caps
-        total_human_captures += human_caps
         capture_series.append(
             {"match_index": index, "ai_captures": ai_caps, "human_captures": human_caps}
         )
-
-    summary = build_summary(matches, mistakes)
-    streaks = _calculate_streaks(results)
 
     try:
         training = _training_history()
@@ -265,7 +249,11 @@ def ai_performance() -> dict:
         "mistake_series": mistake_series,
         "capture_series": capture_series,
         "training": training,
-        "streaks": streaks,
+        "streaks": {
+            "current_streak": summary["current_streak"],
+            "longest_ai_streak": summary["longest_ai_streak"],
+            "longest_human_streak": summary["longest_human_streak"],
+        },
         "difficulty_breakdown": _difficulty_breakdown(matches),
         "variants": variant_performance(matches),
         "length_distribution": game_length_distribution(matches),

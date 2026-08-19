@@ -63,19 +63,6 @@ class ServiceTestCase(TestCase):
         match.save()
         return board, state
 
-    def test_ai_status_is_cached_for_five_seconds(self):
-        from ai import service as svc
-
-        svc.clear_ai_status_cache()
-        with mock.patch.object(svc, "_compute_ai_status", wraps=svc._compute_ai_status) as compute:
-            with mock.patch("ai.service.time.monotonic", side_effect=[10.0, 12.0, 16.0]):
-                first = svc.ai_status()
-                second = svc.ai_status()
-                third = svc.ai_status()
-        self.assertEqual(first, second)
-        self.assertEqual(second, third)
-        self.assertEqual(compute.call_count, 2)
-
 
 class AiTurnTests(ServiceTestCase):
     def test_returns_a_legal_move_and_populates_considered(self):
@@ -198,6 +185,19 @@ class AiTurnTests(ServiceTestCase):
 
 
 class StatusTests(ServiceTestCase):
+    def test_ai_status_is_cached_for_five_seconds(self):
+        from ai import service as svc
+
+        svc.clear_ai_status_cache()
+        with mock.patch.object(svc, "_compute_ai_status", wraps=svc._compute_ai_status) as compute:
+            with mock.patch("ai.service.time.monotonic", side_effect=[10.0, 12.0, 16.0]):
+                first = svc.ai_status()
+                second = svc.ai_status()
+                third = svc.ai_status()
+        self.assertEqual(first, second)
+        self.assertEqual(second, third)
+        self.assertEqual(compute.call_count, 2)
+
     def test_ai_status_on_an_empty_database_returns_sane_defaults(self):
         RLPolicyWeights.objects.all().delete()
         Match.objects.all().delete()

@@ -179,6 +179,16 @@ class HealthTests(ApiTestCase):
             response = self.client.get("/api/health/")
         self.assert_error(response, "database_unavailable", 503)
 
+    def test_unhandled_error_does_not_echo_exception_text(self):
+        from unittest.mock import patch
+
+        with patch("game.models.Match.objects") as manager:
+            manager.all.side_effect = RuntimeError("SECRET_LEAK_XYZ")
+            response = self.client.get("/api/matches/")
+        payload = self.assert_error(response, "computation_error", 500)
+        self.assertEqual(payload["detail"], "The server could not complete that request.")
+        self.assertNotIn("SECRET_LEAK_XYZ", payload["detail"])
+
 
 class StartMatchTests(ApiTestCase):
     def test_response_matches_the_contract(self):
