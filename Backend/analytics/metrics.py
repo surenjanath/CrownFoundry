@@ -532,8 +532,8 @@ def evaluate_position(fen: str | None = None, rules_dict: dict | None = None) ->
     else:
         try:
             board = Board.from_fen(fen, rules=rules)
-        except Exception:
-            board = Board.initial(rules=rules)
+        except Exception as exc:
+            raise ValueError("invalid_fen") from exc
 
     agent = AdaptiveAgent(knobs=Knobs(depth=2, epsilon=0.0, risk=0.5, top_k=5), use_memory=False)
     legal_moves = list(board.legal_moves())

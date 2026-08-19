@@ -264,3 +264,18 @@ class AnalyticsMetricsTest(TestCase):
             rows = {row["variant"]: row for row in variant_performance([match])}
             self.assertEqual(rows[bucket]["total_matches"], 1, bucket)
             Match.objects.all().delete()
+
+    def test_evaluate_position_empty_fen_is_the_opening(self):
+        from analytics.metrics import evaluate_position
+        from game.engine import Board
+
+        data = evaluate_position(None)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["fen"], Board.initial().to_fen())
+
+    def test_evaluate_position_rejects_invalid_fen(self):
+        from analytics.metrics import evaluate_position
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_position("not-a-fen")
+        self.assertEqual(str(ctx.exception), "invalid_fen")
