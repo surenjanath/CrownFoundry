@@ -98,6 +98,8 @@ and in production without edits.
 | `OLLAMA_MODEL`              | `qwen3.5:9b`                | The model it asks                        |
 | `OLLAMA_ENABLED`            | `true`                      | Set false to always use the heuristic narrator |
 | `CROWNFOUNDRY_SEARCH_DEPTH` | `4`                         | How deep the agent looks                 |
+| `CROWNFOUNDRY_DASHBOARD_TOKEN` | empty | Required on train/simulate/evaluate when DEBUG is false |
+| `CROWNFOUNDRY_CORS_ORIGINS`    | empty | Comma-separated browser origins when DEBUG is false |
 
 ## The API
 
