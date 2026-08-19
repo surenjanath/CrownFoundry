@@ -190,8 +190,21 @@ def start_training(request):
         evaluate = bool(data.get("evaluate", True))
     except (ValueError, TypeError):
         raise ApiError("invalid_parameters", "Numeric parameters must be valid integers or floats.")
+    curriculum = str(data.get("curriculum") or "curriculum").strip().lower()
+    if curriculum not in training.CURRICULA:
+        raise ApiError(
+            "invalid_field",
+            f"curriculum must be one of {sorted(training.CURRICULA)}.",
+        )
+    use_book = bool(data.get("use_book", True))
     started, message = training.start_training(
-        games=games, depth=depth, epsilon=epsilon, epochs=epochs, evaluate=evaluate,
+        games=games,
+        depth=depth,
+        epsilon=epsilon,
+        epochs=epochs,
+        evaluate=evaluate,
+        curriculum=curriculum,
+        use_book=use_book,
     )
     if not started:
         err = ApiError("training_busy", message, status=409)
@@ -209,6 +222,23 @@ def training_status(request):
     """``GET /api/analytics/train/status/`` — Poll active or latest training session."""
     status_data = training.get_training_tracker().to_dict()
     return Response({"ok": True, "status": status_data})
+
+
+@endpoint("POST")
+def cancel_training(request):
+    _require_dashboard(request)
+    training.request_cancel()
+    return Response({"ok": True, "status": training.get_training_tracker().to_dict()})
+
+
+@endpoint("POST")
+def set_idle_training(request):
+    _require_dashboard(request)
+    data = body(request)
+    if "enabled" not in data:
+        raise ApiError("missing_field", "enabled is required.")
+    training.set_idle_enabled(bool(data.get("enabled")))
+    return Response({"ok": True, "status": training.get_training_tracker().to_dict()})
 
 
 @endpoint("POST")

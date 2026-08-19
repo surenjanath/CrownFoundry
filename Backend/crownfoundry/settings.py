@@ -168,6 +168,9 @@ CROWNFOUNDRY = {
     "TASKS_EAGER": _env_bool("CROWNFOUNDRY_TASKS_EAGER", False),
     "SEARCH_DEPTH": int(os.environ.get("CROWNFOUNDRY_SEARCH_DEPTH", "4")),
     "DASHBOARD_TOKEN": os.environ.get("CROWNFOUNDRY_DASHBOARD_TOKEN", "").strip(),
+    "IDLE_SELFPLAY": _env_bool("CROWNFOUNDRY_IDLE_SELFPLAY", True),
+    "IDLE_INTERVAL_S": int(os.environ.get("CROWNFOUNDRY_IDLE_INTERVAL_S", "180")),
+    "IDLE_GAMES": int(os.environ.get("CROWNFOUNDRY_IDLE_GAMES", "8")),
 }
 
 LOGGING = {

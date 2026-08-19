@@ -98,8 +98,11 @@ and in production without edits.
 | `OLLAMA_MODEL`              | `qwen3.5:9b`                | The model it asks                        |
 | `OLLAMA_ENABLED`            | `true`                      | Set false to always use the heuristic narrator |
 | `CROWNFOUNDRY_SEARCH_DEPTH` | `4`                         | How deep the agent looks                 |
-| `CROWNFOUNDRY_DASHBOARD_TOKEN` | empty | Required on train/simulate/evaluate when DEBUG is false |
+| `CROWNFOUNDRY_DASHBOARD_TOKEN` | empty | Required on train/simulate/evaluate when DEBUG is false. The HTML dashboard does not send this header, so those buttons need curl (or a token) in production. |
 | `CROWNFOUNDRY_CORS_ORIGINS`    | empty | Comma-separated browser origins when DEBUG is false |
+| `CROWNFOUNDRY_IDLE_SELFPLAY`   | `true` | Background self-play while `runserver` is up |
+| `CROWNFOUNDRY_IDLE_INTERVAL_S` | `180` | Seconds between idle batches |
+| `CROWNFOUNDRY_IDLE_GAMES`      | `8`   | Games per idle batch |
 
 When `DEBUG` is false, dashboard Train / Simulate / Evaluate POSTs require the header
 `X-Dashboard-Token: <CROWNFOUNDRY_DASHBOARD_TOKEN>`. The HTML dashboard page itself does

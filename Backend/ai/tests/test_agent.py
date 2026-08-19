@@ -760,3 +760,17 @@ class PlayGameRulesTests(SimpleTestCase):
         self.assertTrue(plies)
         self.assertFalse(plies[0].board.rules.flying_kings)
         self.assertFalse(plies[0].after.rules.flying_kings)
+
+    def test_start_board_is_the_first_recorded_position(self):
+        from ai.opening_book import seed_opening
+
+        seeded, _ = seed_opening(Board.initial(), np.random.default_rng(3), max_plies=4)
+        _, plies = play_game(
+            RandomAgent(seed=1),
+            RandomAgent(seed=2),
+            max_plies=2,
+            explore=False,
+            start_board=seeded,
+        )
+        self.assertTrue(plies)
+        self.assertEqual(plies[0].board.to_fen(), seeded.to_fen())

@@ -200,6 +200,50 @@ class TrainingApiTests(TestCase):
                 )
             self.assertEqual(allowed.status_code, 202)
 
+    def test_start_training_rejects_unknown_curriculum(self):
+        response = self.client.post(
+            "/api/analytics/train/",
+            data=json.dumps({"games": 10, "curriculum": "nope"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"], "invalid_field")
+
+    @patch("ai.training.start_training")
+    def test_start_training_forwards_curriculum_and_book(self, mock_start):
+        mock_start.return_value = (True, "Training started")
+        response = self.client.post(
+            "/api/analytics/train/",
+            data=json.dumps({
+                "games": 10,
+                "evaluate": False,
+                "curriculum": "vs_greedy",
+                "use_book": False,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 202)
+        mock_start.assert_called_once()
+        kwargs = mock_start.call_args.kwargs
+        self.assertEqual(kwargs["curriculum"], "vs_greedy")
+        self.assertFalse(kwargs["use_book"])
+
+    def test_cancel_training(self):
+        response = self.client.post("/api/analytics/train/cancel/", data=json.dumps({}),
+                                    content_type="application/json")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+
+    def test_idle_toggle(self):
+        response = self.client.post(
+            "/api/analytics/train/idle/",
+            data=json.dumps({"enabled": False}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["status"]["idle_enabled"])
+        training.set_idle_enabled(True)
+
     def _crown(self):
         from django.conf import settings
         return dict(settings.CROWNFOUNDRY)

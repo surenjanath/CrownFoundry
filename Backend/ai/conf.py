@@ -28,6 +28,9 @@ _DEFAULTS = {
     "SEARCH_NODE_BUDGET": 4000,
     "TOP_K": 5,
     "AI_SIDE": "white",
+    "IDLE_SELFPLAY": True,
+    "IDLE_INTERVAL_S": 180,
+    "IDLE_GAMES": 8,
 }
 
 
