@@ -25,7 +25,10 @@ from ai.agent import (
 )
 from ai.baselines import GreedyMaterialAgent, RandomAgent
 from ai.models import KIND_SELF_PLAY, RLPolicyWeights, TrainingRun
+from ai.opening_book import seed_opening
 from ai.replay import ReplayBuffer
+from ai.training import _pair_for, should_save
+from game.engine.board import Board
 from game.engine.notation import BLACK, WHITE
 
 
@@ -78,6 +81,16 @@ class Command(BaseCommand):
         parser.add_argument("--eval-games", type=int, default=20)
         parser.add_argument("--fresh", action="store_true", help="ignore the stored policy")
         parser.add_argument("--dry-run", action="store_true", help="do not save the policy")
+        parser.add_argument(
+            "--curriculum",
+            choices=["self", "curriculum", "vs_greedy"],
+            default="curriculum",
+        )
+        parser.add_argument(
+            "--no-book",
+            action="store_true",
+            help="start every game from the initial position instead of the opening book",
+        )
 
     def handle(self, *args, **options):
         games = int(options["games"])
@@ -117,12 +130,22 @@ class Command(BaseCommand):
             )
             self.stdout.write("-" * 46)
 
+        curriculum = options["curriculum"]
+        use_book = not bool(options["no_book"])
         for game_index in range(1, games + 1):
-            winner, plies = play_game(agent, agent, explore=True, max_plies=max_plies)
+            black, white, learn_sides = _pair_for(agent, game_index, games, curriculum, seed)
+            start_board = None
+            if use_book:
+                start_board, _ = seed_opening(
+                    Board.initial(), np.random.default_rng(seed + game_index), max_plies=8
+                )
+            winner, plies = play_game(
+                black, white, explore=True, max_plies=max_plies, start_board=start_board
+            )
             outcomes[winner if winner in outcomes else "unfinished"] += 1
 
             batch = []
-            for side in (BLACK, WHITE):
+            for side in learn_sides:
                 batch.extend(build_transitions(plies, winner, side, gamma=agent.gamma))
             transitions_seen += len(batch)
             agent.replay.extend(batch)
@@ -144,6 +167,7 @@ class Command(BaseCommand):
             after = self._benchmark(agent, int(options["eval_games"]), seed + 777, max_plies,
                                     "after")
 
+        saved = should_save(before, after, evaluate=bool(options["evaluate"]))
         if not options["dry_run"]:
             detail = {
                 "outcomes": outcomes,
@@ -151,31 +175,39 @@ class Command(BaseCommand):
                 "epsilon": epsilon,
                 "seed": seed,
                 "elapsed_s": round(elapsed, 2),
+                "curriculum": curriculum,
+                "use_book": use_book,
+                "saved": saved,
             }
             if before and after:
                 detail["evaluation"] = {"before": before, "after": after}
             previous = RLPolicyWeights.active()
-            row = save_network(
-                agent.net,
-                loss=mean_loss,
-                games_delta=games,
-                notes=f"self-play {games} games depth={depth}",
-            )
+            version = int(getattr(previous, "version", 0) or 0)
+            if saved:
+                row = save_network(
+                    agent.net,
+                    loss=mean_loss,
+                    games_delta=games,
+                    notes=f"self-play {curriculum} {games} games depth={depth}",
+                )
+                version = row.version
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"saved policy v{row.version} "
+                        f"(was v{getattr(previous, 'version', 0) or 0}), "
+                        f"games_trained={row.games_trained}"
+                    )
+                )
+            else:
+                self.stdout.write(self.style.WARNING("kept the previous policy (eval score dropped)"))
             TrainingRun.objects.create(
-                policy_version=row.version,
+                policy_version=version,
                 kind=KIND_SELF_PLAY,
                 games=games,
                 transitions=transitions_seen,
                 loss=mean_loss,
                 duration_ms=int(elapsed * 1000),
                 detail=detail,
-            )
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"saved policy v{row.version} "
-                    f"(was v{getattr(previous, 'version', 0) or 0}), "
-                    f"games_trained={row.games_trained}"
-                )
             )
 
         self.stdout.write("")
