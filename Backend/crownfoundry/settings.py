@@ -8,6 +8,8 @@ with SQLite and in production against PostgreSQL without edits.
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -18,12 +20,23 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-SECRET_KEY = os.environ.get(
-    "CROWNFOUNDRY_SECRET_KEY",
-    "dev-only-insecure-key-change-me-before-you-ship-anything",
-)
+INSECURE_DEV_SECRET = "dev-only-insecure-key-change-me-before-you-ship-anything"
+
+
+def apply_production_guards(*, debug: bool, secret_key: str) -> None:
+    if not debug and secret_key == INSECURE_DEV_SECRET:
+        raise ImproperlyConfigured("Set CROWNFOUNDRY_SECRET_KEY when DEBUG is false.")
+
+
+def cors_allow_all(debug: bool) -> bool:
+    return debug
+
+
+SECRET_KEY = os.environ.get("CROWNFOUNDRY_SECRET_KEY", INSECURE_DEV_SECRET)
 
 DEBUG = _env_bool("CROWNFOUNDRY_DEBUG", True)
+
+apply_production_guards(debug=DEBUG, secret_key=SECRET_KEY)
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -131,7 +144,12 @@ REST_FRAMEWORK = {
     "UNAUTHENTICATED_USER": None,
 }
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = cors_allow_all(DEBUG)
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CROWNFOUNDRY_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
 
 # --- CrownFoundry knobs -------------------------------------------------------------------
 
@@ -149,4 +167,22 @@ CROWNFOUNDRY = {
     # Run background tasks inline instead of on a worker thread. Tests force this on.
     "TASKS_EAGER": _env_bool("CROWNFOUNDRY_TASKS_EAGER", False),
     "SEARCH_DEPTH": int(os.environ.get("CROWNFOUNDRY_SEARCH_DEPTH", "4")),
+    "DASHBOARD_TOKEN": os.environ.get("CROWNFOUNDRY_DASHBOARD_TOKEN", "").strip(),
+    "IDLE_SELFPLAY": _env_bool("CROWNFOUNDRY_IDLE_SELFPLAY", True),
+    "IDLE_INTERVAL_S": int(os.environ.get("CROWNFOUNDRY_IDLE_INTERVAL_S", "180")),
+    "IDLE_GAMES": int(os.environ.get("CROWNFOUNDRY_IDLE_GAMES", "8")),
+}
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        "crownfoundry": {"handlers": ["console"], "level": "INFO"},
+        "game": {"handlers": ["console"], "level": "INFO"},
+        "ai": {"handlers": ["console"], "level": "INFO"},
+        "analytics": {"handlers": ["console"], "level": "INFO"},
+    },
 }

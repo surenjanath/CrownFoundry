@@ -671,15 +671,40 @@
                         </div>
                     </div>
 
+                    <div class="form-group">
+                        <label class="form-label">Curriculum</label>
+                        <select id="train-curriculum" class="form-control">
+                            <option value="curriculum" selected>Curriculum (random → greedy → self)</option>
+                            <option value="self">Self-play only</option>
+                            <option value="vs_greedy">Always vs greedy</option>
+                        </select>
+                    </div>
+
                     <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
                         <input type="checkbox" id="train-eval" checked style="accent-color: #ffffff;">
                         <label for="train-eval" style="font-size: 12px; color: var(--text-secondary); cursor: pointer;">
                             Benchmark against Random & Greedy baselines before and after
                         </label>
                     </div>
+                    <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="train-book" checked style="accent-color: #ffffff;">
+                        <label for="train-book" style="font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                            Seed games from the opening book
+                        </label>
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="train-idle" {% if training_status.idle_enabled %}checked{% endif %} style="accent-color: #ffffff;" onchange="toggleIdle(this.checked)">
+                        <label for="train-idle" style="font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                            Learn in the background when idle
+                        </label>
+                    </div>
+                    <p id="idle-next" style="font-size: 11px; color: var(--text-muted); margin: 0 0 8px;">Idle trainer waits between batches.</p>
 
                     <button id="btn-start-train" class="btn btn-primary" style="width: 100%; margin-top: 10px;" onclick="triggerTraining()">
                         ⚡ Start Self-Play Training Session
+                    </button>
+                    <button id="btn-cancel-train" class="btn" style="width: 100%; margin-top: 8px;" onclick="cancelTraining()">
+                        Cancel current job
                     </button>
                 </div>
 
@@ -1414,6 +1439,8 @@
             const depth = parseInt(document.getElementById('train-depth').value, 10) || 2;
             const epsilon = parseFloat(document.getElementById('train-epsilon').value) || 0.25;
             const evaluate = document.getElementById('train-eval').checked;
+            const curriculum = document.getElementById('train-curriculum').value;
+            const use_book = document.getElementById('train-book').checked;
 
             btn.disabled = true;
             btn.innerText = "Initiating Session...";
@@ -1422,7 +1449,7 @@
                 const response = await fetch('/api/analytics/train/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ games, depth, epsilon, evaluate })
+                    body: JSON.stringify({ games, depth, epsilon, evaluate, curriculum, use_book })
                 });
                 const result = await response.json();
                 if (result.ok) {
@@ -1439,6 +1466,58 @@
                 btn.innerText = "⚡ Start Self-Play Training Session";
             }
         }
+
+        async function cancelTraining() {
+            try {
+                const response = await fetch('/api/analytics/train/cancel/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const result = await response.json();
+                addLogLine(result.ok ? '[CANCEL] Stop after the current game.' : `[ERROR] ${result.detail || result.error}`);
+            } catch (err) {
+                addLogLine(`[NETWORK ERROR] ${err.message}`);
+            }
+        }
+
+        async function toggleIdle(enabled) {
+            try {
+                const response = await fetch('/api/analytics/train/idle/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled })
+                });
+                const result = await response.json();
+                addLogLine(result.ok ? `[IDLE] ${enabled ? 'on' : 'off'}` : `[ERROR] ${result.detail || result.error}`);
+            } catch (err) {
+                addLogLine(`[NETWORK ERROR] ${err.message}`);
+            }
+        }
+
+        function updateIdleLabel(st) {
+            const el = document.getElementById('idle-next');
+            if (!el) return;
+            if (!st.idle_enabled) {
+                el.innerText = 'Idle trainer is off.';
+                return;
+            }
+            if (st.next_idle_at) {
+                const secs = Math.max(0, Math.round(st.next_idle_at - (Date.now() / 1000)));
+                el.innerText = secs ? `Next idle batch in ~${secs}s.` : 'Idle batch starting…';
+                return;
+            }
+            el.innerText = 'Idle trainer waits between batches.';
+        }
+
+        async function refreshIdleLabel() {
+            try {
+                const res = await fetch('/api/analytics/train/status/');
+                const data = await res.json();
+                if (data.ok && data.status) updateIdleLabel(data.status);
+            } catch (e) { /* ignore */ }
+        }
+        refreshIdleLabel();
 
         function addLogLine(text) {
             const terminal = document.getElementById('train-terminal');
@@ -1474,6 +1553,8 @@
                             terminal.appendChild(d);
                         });
                         terminal.scrollTop = terminal.scrollHeight;
+
+                        updateIdleLabel(st);
 
                         if (!st.is_running) {
                             clearInterval(interval);

@@ -31,10 +31,20 @@ def _round(value: float, places: int = 3) -> float:
 def _finished_matches() -> list:
     from game.models import Match
 
-    rows = list(
-        Match.objects.filter(winner__in=[AI_SIDE, HUMAN_SIDE, DRAW]).order_by("start_time", "pk")
+    return list(
+        Match.objects.filter(winner__in=[AI_SIDE, HUMAN_SIDE, DRAW])
+        .order_by("start_time", "pk")
+        .only(
+            "pk",
+            "winner",
+            "total_turns",
+            "ai_captures",
+            "human_captures",
+            "start_time",
+            "difficulty",
+            "rules_data",
+        )
     )
-    return rows
 
 
 def _policy() -> tuple[int, int]:
@@ -101,31 +111,15 @@ def empty_summary() -> dict:
     }
 
 
-def ai_performance() -> dict:
-    """The full payload for ``GET /api/analytics/ai-performance/``."""
-    try:
-        matches = _finished_matches()
-    except Exception:
-        logger.exception("could not read match history")
-        matches = []
-
-    win_rate_series: list[dict] = []
-    game_length_series: list[dict] = []
-    mistake_series: list[dict] = []
-    capture_series: list[dict] = []
-
+def build_summary(matches: list, mistakes: dict | None = None) -> dict:
+    """Summary + streaks. Does not build series, training history, or variant tables."""
+    mistakes = mistakes if mistakes is not None else {}
     results: list[str] = []
     ai_wins = human_wins = draws = 0
     total_turns = 0
     total_ai_captures = total_human_captures = 0
     total_repeated = total_moves = 0
     games_to_50 = None
-
-    try:
-        mistakes = _mistake_counts([m.pk for m in matches])
-    except Exception:
-        logger.exception("could not read move memories")
-        mistakes = {}
 
     for index, match in enumerate(matches, start=1):
         winner = match.winner
@@ -142,11 +136,78 @@ def ai_performance() -> dict:
 
         window = results[-ROLLING_WINDOW:]
         rolling = window.count("win") / len(window)
-        cumulative = ai_wins / index
-        # "How many games it took to cross 50%" only means something once a full window exists;
-        # a single win on match one is not a 100% win rate in any useful sense.
         if games_to_50 is None and index >= ROLLING_WINDOW and rolling >= 0.5:
             games_to_50 = index
+
+        total_turns += int(getattr(match, "total_turns", 0) or 0)
+        total_ai_captures += int(getattr(match, "ai_captures", 0) or 0)
+        total_human_captures += int(getattr(match, "human_captures", 0) or 0)
+        repeated, moves = mistakes.get(match.pk, (0, 0))
+        total_repeated += repeated
+        total_moves += moves
+
+    total = len(matches)
+    payload = empty_summary()
+    if total:
+        if total_human_captures:
+            capture_ratio = total_ai_captures / total_human_captures
+        else:
+            capture_ratio = float(total_ai_captures)
+        payload.update(
+            {
+                "total_matches": total,
+                "ai_wins": ai_wins,
+                "human_wins": human_wins,
+                "draws": draws,
+                "ai_win_rate": _round(ai_wins / total),
+                "games_to_50_percent": games_to_50,
+                "avg_turns": round(total_turns / total, 2),
+                "mistake_repetition_rate": _round(total_repeated / total_moves) if total_moves else 0.0,
+                "capture_ratio": _round(capture_ratio),
+            }
+        )
+    payload.update(_calculate_streaks(results))
+    return payload
+
+
+def ai_performance() -> dict:
+    """The full payload for ``GET /api/analytics/ai-performance/``."""
+    try:
+        matches = _finished_matches()
+    except Exception:
+        logger.exception("could not read match history")
+        matches = []
+
+    try:
+        mistakes = _mistake_counts([m.pk for m in matches])
+    except Exception:
+        logger.exception("could not read move memories")
+        mistakes = {}
+
+    summary = build_summary(matches, mistakes)
+
+    win_rate_series: list[dict] = []
+    game_length_series: list[dict] = []
+    mistake_series: list[dict] = []
+    capture_series: list[dict] = []
+
+    results: list[str] = []
+    ai_wins = 0
+
+    for index, match in enumerate(matches, start=1):
+        winner = match.winner
+        if winner == AI_SIDE:
+            ai_wins += 1
+            result = "win"
+        elif winner == DRAW:
+            result = "draw"
+        else:
+            result = "loss"
+        results.append(result)
+
+        window = results[-ROLLING_WINDOW:]
+        rolling = window.count("win") / len(window)
+        cumulative = ai_wins / index
 
         win_rate_series.append(
             {
@@ -158,12 +219,9 @@ def ai_performance() -> dict:
         )
 
         turns = int(getattr(match, "total_turns", 0) or 0)
-        total_turns += turns
         game_length_series.append({"match_index": index, "turns": turns})
 
         repeated, moves = mistakes.get(match.pk, (0, 0))
-        total_repeated += repeated
-        total_moves += moves
         mistake_series.append(
             {
                 "match_index": index,
@@ -174,39 +232,9 @@ def ai_performance() -> dict:
 
         ai_caps = int(getattr(match, "ai_captures", 0) or 0)
         human_caps = int(getattr(match, "human_captures", 0) or 0)
-        total_ai_captures += ai_caps
-        total_human_captures += human_caps
         capture_series.append(
             {"match_index": index, "ai_captures": ai_caps, "human_captures": human_caps}
         )
-
-    total = len(matches)
-    summary = empty_summary()
-    if total:
-        if total_human_captures:
-            capture_ratio = total_ai_captures / total_human_captures
-        else:
-            # No human captures at all: the ratio is undefined, so report the AI's own count,
-            # which is the honest "infinitely better" reading without an infinity in the JSON.
-            capture_ratio = float(total_ai_captures)
-        summary.update(
-            {
-                "total_matches": total,
-                "ai_wins": ai_wins,
-                "human_wins": human_wins,
-                "draws": draws,
-                "ai_win_rate": _round(ai_wins / total),
-                "games_to_50_percent": games_to_50,
-                "avg_turns": round(total_turns / total, 2),
-                "mistake_repetition_rate": _round(total_repeated / total_moves)
-                if total_moves
-                else 0.0,
-                "capture_ratio": _round(capture_ratio),
-            }
-        )
-
-    streaks = _calculate_streaks(results)
-    summary.update(streaks)
 
     try:
         training = _training_history()
@@ -221,7 +249,11 @@ def ai_performance() -> dict:
         "mistake_series": mistake_series,
         "capture_series": capture_series,
         "training": training,
-        "streaks": streaks,
+        "streaks": {
+            "current_streak": summary["current_streak"],
+            "longest_ai_streak": summary["longest_ai_streak"],
+            "longest_human_streak": summary["longest_human_streak"],
+        },
         "difficulty_breakdown": _difficulty_breakdown(matches),
         "variants": variant_performance(matches),
         "length_distribution": game_length_distribution(matches),
@@ -241,8 +273,8 @@ def variant_performance(matches: list | None = None) -> list[dict]:
     }
 
     for m in matches:
-        fk = getattr(m, "flying_kings", False)
-        mcb = getattr(m, "men_capture_backwards", False)
+        rules = m.variant_rules
+        fk, mcb = rules.flying_kings, rules.men_capture_backwards
         if fk and mcb:
             groups["Full Modern (Flying + Back)"].append(m)
         elif fk:
@@ -518,7 +550,17 @@ def milestones() -> list[dict]:
 
 def summary() -> dict:
     """The cheap poll for the Play tab's status card."""
-    return ai_performance()["summary"]
+    try:
+        matches = _finished_matches()
+    except Exception:
+        logger.exception("could not read match history")
+        matches = []
+    try:
+        mistakes = _mistake_counts([m.pk for m in matches])
+    except Exception:
+        logger.exception("could not read move memories")
+        mistakes = {}
+    return build_summary(matches, mistakes)
 
 
 def evaluate_position(fen: str | None = None, rules_dict: dict | None = None) -> dict:
@@ -532,8 +574,8 @@ def evaluate_position(fen: str | None = None, rules_dict: dict | None = None) ->
     else:
         try:
             board = Board.from_fen(fen, rules=rules)
-        except Exception:
-            board = Board.initial(rules=rules)
+        except Exception as exc:
+            raise ValueError("invalid_fen") from exc
 
     agent = AdaptiveAgent(knobs=Knobs(depth=2, epsilon=0.0, risk=0.5, top_k=5), use_memory=False)
     legal_moves = list(board.legal_moves())
@@ -629,6 +671,7 @@ def simulate_ai_match(
         explore=False,
         max_plies=max_plies,
         record=True,
+        rules=rules,
     )
 
     trajectory = [

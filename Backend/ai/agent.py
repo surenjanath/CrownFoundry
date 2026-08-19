@@ -844,9 +844,12 @@ def _next_elo(winner: str | None, ai_side: str, opponent_elo: float, k: int = 24
 
 
 def play_game(black_agent, white_agent, *, explore: bool = True, max_plies: int = 240,
-              record: bool = True) -> tuple[str | None, list[Ply]]:
+              record: bool = True, rules=None, start_board=None) -> tuple[str | None, list[Ply]]:
     """Play one game out. Returns ``(winner, plies)``; ``winner`` is None if it hit ``max_plies``."""
-    board = Board.initial()
+    if start_board is not None:
+        board = start_board
+    else:
+        board = Board.initial() if rules is None else Board.initial(rules=rules)
     plies: list[Ply] = []
     for _ in range(max_plies):
         if board.is_terminal():

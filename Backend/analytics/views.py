@@ -1,17 +1,35 @@
+import hmac
 import json
 import logging
 
+from django.conf import settings
 from django.shortcuts import render
-from rest_framework import status
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from game.views import ApiError, body, endpoint
 from ai import ollama, training
 from ai.models import TrainingRun
 from game.models import Match
 from . import metrics
 
 logger = logging.getLogger("crownfoundry.analytics")
+
+SIMULATE_AGENTS = frozenset({"policy", "greedy", "random"})
+
+
+def _require_dashboard(request) -> None:
+    token = str((getattr(settings, "CROWNFOUNDRY", {}) or {}).get("DASHBOARD_TOKEN") or "").strip()
+    if not token:
+        if settings.DEBUG:
+            return
+        raise ApiError("forbidden", "Dashboard token required.", status=403)
+    provided = request.headers.get("X-Dashboard-Token") or ""
+    try:
+        matched = hmac.compare_digest(provided.encode("utf-8"), token.encode("utf-8"))
+    except Exception:
+        matched = False
+    if not matched:
+        raise ApiError("forbidden", "Dashboard token required.", status=403)
 
 
 def dashboard(request):
@@ -59,8 +77,8 @@ def dashboard(request):
                     "total_turns": m.total_turns,
                     "ai_captures": m.ai_captures,
                     "human_captures": m.human_captures,
-                    "flying_kings": getattr(m, "flying_kings", False),
-                    "men_capture_backwards": getattr(m, "men_capture_backwards", False),
+                    "flying_kings": m.variant_rules.flying_kings,
+                    "men_capture_backwards": m.variant_rules.men_capture_backwards,
                 }
             )
     except Exception:
@@ -115,87 +133,55 @@ def dashboard(request):
     return render(request, "analytics/dashboard.html", context)
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def ai_performance(request):
     """``GET /api/analytics/ai-performance/`` — ARCHITECTURE.md section 5."""
-    try:
-        payload = metrics.ai_performance()
-    except Exception:
-        logger.exception("analytics computation failed")
-        payload = {
-            "summary": metrics.empty_summary(),
-            "win_rate_series": [],
-            "game_length_series": [],
-            "mistake_series": [],
-            "capture_series": [],
-            "training": [],
-            "variants": [],
-            "length_distribution": {},
-        }
+    payload = metrics.ai_performance()
     return Response({"ok": True, **payload})
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def summary(request):
     """``GET /api/analytics/summary/`` — the summary object alone."""
-    try:
-        payload = metrics.summary()
-    except Exception:
-        logger.exception("analytics summary failed")
-        payload = metrics.empty_summary()
+    payload = metrics.summary()
     return Response({"ok": True, "summary": payload, **payload})
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def match_insights(request, match_id):
     """``GET /api/analytics/match/<match_id>/insights/``."""
-    try:
-        payload = metrics.match_insights(match_id)
-        if not payload.get("ok", True):
-            return Response(payload, status=404)
-        return Response(payload)
-    except Exception:
-        logger.exception("match insights failed for %s", match_id)
-        return Response({"ok": False, "error": "computation_error"}, status=500)
+    payload = metrics.match_insights(match_id)
+    if not payload.get("ok", True):
+        raise ApiError("match_not_found", f"No match with id {match_id}.", status=404)
+    return Response(payload)
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def repertoire(request):
     """``GET /api/analytics/repertoire/``."""
-    try:
-        data = metrics.opening_repertoire()
-    except Exception:
-        logger.exception("opening repertoire failed")
-        data = []
+    data = metrics.opening_repertoire()
     return Response({"ok": True, "repertoire": data})
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def milestones(request):
     """``GET /api/analytics/milestones/``."""
-    try:
-        data = metrics.milestones()
-    except Exception:
-        logger.exception("milestones computation failed")
-        data = []
+    data = metrics.milestones()
     return Response({"ok": True, "milestones": data})
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def variant_stats(request):
     """``GET /api/analytics/variants/``."""
-    try:
-        data = metrics.variant_performance()
-    except Exception:
-        logger.exception("variant performance failed")
-        data = []
+    data = metrics.variant_performance()
     return Response({"ok": True, "variants": data})
 
 
-@api_view(["POST"])
+@endpoint("POST")
 def start_training(request):
     """``POST /api/analytics/train/`` — Trigger asynchronous self-play training session."""
-    data = request.data if hasattr(request, "data") else {}
+    _require_dashboard(request)
+    data = body(request)
     try:
         games = int(data.get("games", 50))
         depth = int(data.get("depth", 2))
@@ -203,95 +189,108 @@ def start_training(request):
         epochs = int(data.get("epochs", 2))
         evaluate = bool(data.get("evaluate", True))
     except (ValueError, TypeError):
-        return Response(
-            {"ok": False, "error": "invalid_parameters", "detail": "Numeric parameters must be valid integers or floats."},
-            status=status.HTTP_400_BAD_REQUEST,
+        raise ApiError("invalid_parameters", "Numeric parameters must be valid integers or floats.")
+    curriculum = str(data.get("curriculum") or "curriculum").strip().lower()
+    if curriculum not in training.CURRICULA:
+        raise ApiError(
+            "invalid_field",
+            f"curriculum must be one of {sorted(training.CURRICULA)}.",
         )
-
+    use_book = bool(data.get("use_book", True))
     started, message = training.start_training(
         games=games,
         depth=depth,
         epsilon=epsilon,
         epochs=epochs,
         evaluate=evaluate,
+        curriculum=curriculum,
+        use_book=use_book,
     )
-
     if not started:
-        return Response(
-            {"ok": False, "error": "training_busy", "detail": message, "status": training.get_training_tracker().to_dict()},
-            status=status.HTTP_409_CONFLICT,
-        )
+        err = ApiError("training_busy", message, status=409)
+        err.extra["status"] = training.get_training_tracker().to_dict()
+        raise err
 
     return Response(
         {"ok": True, "message": message, "status": training.get_training_tracker().to_dict()},
-        status=status.HTTP_202_ACCEPTED,
+        status=202,
     )
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def training_status(request):
     """``GET /api/analytics/train/status/`` — Poll active or latest training session."""
     status_data = training.get_training_tracker().to_dict()
     return Response({"ok": True, "status": status_data})
 
 
-@api_view(["POST"])
+@endpoint("POST")
+def cancel_training(request):
+    _require_dashboard(request)
+    training.request_cancel()
+    return Response({"ok": True, "status": training.get_training_tracker().to_dict()})
+
+
+@endpoint("POST")
+def set_idle_training(request):
+    _require_dashboard(request)
+    data = body(request)
+    if "enabled" not in data:
+        raise ApiError("missing_field", "enabled is required.")
+    training.set_idle_enabled(bool(data.get("enabled")))
+    return Response({"ok": True, "status": training.get_training_tracker().to_dict()})
+
+
+@endpoint("POST")
 def evaluate_board_position(request):
     """``POST /api/analytics/evaluate-position/`` — Real-time position & legal move evaluator."""
-    data = request.data if hasattr(request, "data") else {}
-    fen = data.get("fen")
-    rules_dict = data.get("rules")
+    _require_dashboard(request)
+    data = body(request)
     try:
-        result = metrics.evaluate_position(fen, rules_dict)
-        return Response(result)
-    except Exception:
-        logger.exception("position evaluation failed")
-        return Response({"ok": False, "error": "evaluation_failed"}, status=400)
+        return Response(metrics.evaluate_position(data.get("fen"), data.get("rules")))
+    except ValueError as exc:
+        if str(exc) == "invalid_fen":
+            raise ApiError("invalid_fen", "fen is not a valid position.") from exc
+        raise
 
 
-@api_view(["POST"])
+@endpoint("POST")
 def simulate_match(request):
     """``POST /api/analytics/simulate-match/`` — Run fast exhibition game between 2 agents."""
-    data = request.data if hasattr(request, "data") else {}
+    _require_dashboard(request)
+    data = body(request)
     black_agent = str(data.get("black_agent", "policy"))
     white_agent = str(data.get("white_agent", "greedy"))
-    max_plies = int(data.get("max_plies", 80))
-    rules_dict = data.get("rules")
-
+    if black_agent not in SIMULATE_AGENTS or white_agent not in SIMULATE_AGENTS:
+        raise ApiError(
+            "invalid_field",
+            f"black_agent and white_agent must be one of {sorted(SIMULATE_AGENTS)}.",
+        )
     try:
-        result = metrics.simulate_ai_match(
+        max_plies = int(data.get("max_plies", 80))
+    except (TypeError, ValueError):
+        raise ApiError("invalid_parameters", "max_plies must be an integer.")
+    max_plies = max(20, min(max_plies, 240))
+    return Response(
+        metrics.simulate_ai_match(
             black_type=black_agent,
             white_type=white_agent,
             max_plies=max_plies,
-            rules_dict=rules_dict,
+            rules_dict=data.get("rules"),
         )
-        return Response(result)
-    except Exception:
-        logger.exception("match simulation failed")
-        return Response({"ok": False, "error": "simulation_failed"}, status=500)
+    )
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def board_heatmap(request):
     """``GET /api/analytics/board-heatmap/`` — 32-square traffic and piece occupancy frequencies."""
-    try:
-        data = metrics.board_heatmap()
-        return Response(data)
-    except Exception:
-        logger.exception("board heatmap failed")
-        return Response({"ok": False, "error": "heatmap_failed"}, status=500)
+    return Response(metrics.board_heatmap())
 
 
-@api_view(["GET"])
+@endpoint("GET")
 def match_replay(request, match_id):
     """``GET /api/analytics/match/<match_id>/replay/`` — Step-by-step match trajectory."""
-    try:
-        data = metrics.match_insights(match_id)
-        if not data.get("ok", True):
-            return Response(data, status=404)
-        return Response(data)
-    except Exception:
-        logger.exception("match replay failed for %s", match_id)
-        return Response({"ok": False, "error": "replay_failed"}, status=500)
-
-
+    payload = metrics.match_insights(match_id)
+    if not payload.get("ok", True):
+        raise ApiError("match_not_found", f"No match with id {match_id}.", status=404)
+    return Response(payload)

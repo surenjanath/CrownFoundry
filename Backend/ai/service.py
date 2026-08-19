@@ -10,6 +10,7 @@ The signatures and the shape of :class:`AITurnResult` are fixed by ARCHITECTURE.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -120,7 +121,7 @@ def ai_turn(match) -> AITurnResult:
     )
 
 
-def ai_status() -> dict:
+def _compute_ai_status() -> dict:
     """``{"policy_version", "games_trained", "win_rate", "elo"}`` for status cards."""
     from .models import DEFAULT_ELO, RLPolicyWeights
 
@@ -153,6 +154,26 @@ def ai_status() -> dict:
         "win_rate": win_rate,
         "elo": int(getattr(policy, "elo_rating", DEFAULT_ELO) or DEFAULT_ELO),
     }
+
+
+_STATUS_TTL = 5.0
+_status_cache: dict = {"at": 0.0, "value": None}
+
+
+def clear_ai_status_cache() -> None:
+    _status_cache["at"] = 0.0
+    _status_cache["value"] = None
+
+
+def ai_status() -> dict:
+    now = time.monotonic()
+    cached = _status_cache["value"]
+    if cached is not None and (now - _status_cache["at"]) < _STATUS_TTL:
+        return cached
+    value = _compute_ai_status()
+    _status_cache["at"] = now
+    _status_cache["value"] = value
+    return value
 
 
 def ollama_status() -> dict:

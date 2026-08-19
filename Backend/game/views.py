@@ -71,6 +71,13 @@ def endpoint(*methods):
                 return exc.response()
             except ParseError as exc:
                 return ApiError("invalid_json", str(exc.detail)).response()
+            except Exception:
+                logger.exception("unhandled error in %s", view.__name__)
+                return ApiError(
+                    "computation_error",
+                    "The server could not complete that request.",
+                    status=500,
+                ).response()
 
         wrapper.__name__ = view.__name__
         wrapper.__doc__ = view.__doc__
@@ -248,7 +255,23 @@ def match_envelope(match: Match, board: Board) -> dict:
 
 @endpoint("GET")
 def health(request):
-    """Liveness. Answers even when the brain is broken."""
+    """Liveness. Answers even when the brain is broken. Fails only if the database is down."""
+    try:
+        connection.ensure_connection()
+    except Exception:
+        logger.exception("health database check failed")
+        raise ApiError("database_unavailable", "The database is not reachable.", status=503)
+
+    policy_version = 0
+    try:
+        from ai.models import RLPolicyWeights
+
+        row = RLPolicyWeights.active()
+        policy_version = int(getattr(row, "version", 0) or 0)
+    except Exception:
+        logger.warning("policy table unavailable", exc_info=True)
+        policy_version = 0
+
     try:
         ollama = ai_service.ollama_status()
         if not isinstance(ollama, dict):
@@ -264,7 +287,7 @@ def health(request):
                 "available": bool(ollama.get("available", False)),
                 "model": ollama.get("model", ""),
             },
-            "policy_version": ai_status().get("policy_version"),
+            "policy_version": policy_version,
         }
     )
 
