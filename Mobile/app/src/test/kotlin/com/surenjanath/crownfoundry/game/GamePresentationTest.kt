@@ -222,6 +222,27 @@ class GamePresentationTest {
         assertEquals(Commentary.Silent, state.present(showReasoning = false).commentary)
     }
 
+    // --- how far in you are ---------------------------------------------------------------------
+
+    @Test
+    fun `the rail counts the move about to be played, then how long it took`() = runTest {
+        val state = stateWith(FakeCheckersApi())
+        state.begin(null)
+
+        // Nobody has moved, so the game is on its first move rather than its zeroth.
+        assertEquals("Move 1", state.present().moveLabel)
+
+        state.play("11-15")
+        assertEquals("Move 3", state.present().moveLabel)
+
+        val ended = stateWith(FakeCheckersApi().apply {
+            resignOutcome = Outcome.Success(ResignDto(gameOver = true, winner = Side.AI))
+        })
+        ended.begin(null)
+        ended.resign()
+        assertEquals("0 moves", ended.present().moveLabel)
+    }
+
     // --- the clock ------------------------------------------------------------------------------
 
     @Test

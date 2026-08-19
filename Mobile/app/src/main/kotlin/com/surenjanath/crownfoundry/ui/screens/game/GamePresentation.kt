@@ -66,7 +66,9 @@ data class GamePresentation(
     val opponent: SeatView,
     val you: SeatView,
     val event: GameEvent?,
-    val commentary: Commentary
+    val commentary: Commentary,
+    /** Where the game has got to, for the rail above the board. */
+    val moveLabel: String
 )
 
 /**
@@ -125,6 +127,7 @@ fun GameState.present(
     return GamePresentation(
         opponent = opponent,
         you = you,
+        moveLabel = moveLabelOf(),
         event = eventOf(passAndPlay),
         commentary = when {
             passAndPlay -> Commentary.Silent
@@ -133,6 +136,17 @@ fun GameState.present(
             else -> Commentary.Silent
         }
     )
+}
+
+/**
+ * The move about to be played while the game is live, and how long it took once it is not.
+ *
+ * A game nobody has moved in is on its first move rather than its zeroth, which is why this
+ * counts one ahead of the moves actually played.
+ */
+private fun GameState.moveLabelOf(): String = when {
+    isOver -> "$turnNumber ${if (turnNumber == 1) "move" else "moves"}"
+    else -> "Move ${turnNumber + 1}"
 }
 
 /**

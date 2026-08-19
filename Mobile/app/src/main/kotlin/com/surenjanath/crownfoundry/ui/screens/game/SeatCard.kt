@@ -47,8 +47,7 @@ const val AiPanelTag = "aiPanel"
 @Composable
 fun SeatCard(
     seat: SeatView,
-    modifier: Modifier = Modifier,
-    leading: (@Composable () -> Unit)? = null
+    modifier: Modifier = Modifier
 ) {
     val (colorPalette, typography) = LocalAppearance.current
 
@@ -78,8 +77,6 @@ fun SeatCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            leading?.invoke()
-
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier

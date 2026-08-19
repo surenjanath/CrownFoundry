@@ -334,16 +334,14 @@ fun GameScreen(
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
+                    GameTopRail(
+                        moveLabel = presentation.moveLabel,
+                        onBack = { backDispatcher?.onBackPressed() }
+                    )
+
                     SeatCard(
                         seat = presentation.opponent,
-                        modifier = Modifier.testTag(AiPanelTag),
-                        leading = {
-                            HeaderIconButton(
-                                icon = R.drawable.chevron_back,
-                                color = colorPalette.textSecondary,
-                                onClick = { backDispatcher?.onBackPressed() }
-                            )
-                        }
+                        modifier = Modifier.testTag(AiPanelTag)
                     )
 
                     CommentaryStrip(commentary = presentation.commentary)
@@ -379,16 +377,14 @@ fun GameScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.verticalScroll(rememberScrollState())
                     ) {
+                        GameTopRail(
+                            moveLabel = presentation.moveLabel,
+                            onBack = { backDispatcher?.onBackPressed() }
+                        )
+
                         SeatCard(
                             seat = presentation.opponent,
-                            modifier = Modifier.testTag(AiPanelTag),
-                            leading = {
-                                HeaderIconButton(
-                                    icon = R.drawable.chevron_back,
-                                    color = colorPalette.textSecondary,
-                                    onClick = { backDispatcher?.onBackPressed() }
-                                )
-                            }
+                            modifier = Modifier.testTag(AiPanelTag)
                         )
 
                         CommentaryStrip(commentary = presentation.commentary)
@@ -474,6 +470,42 @@ fun GameScreen(
 }
 
 /**
+ * The line above the board: out of here, and how far in you are.
+ *
+ * Back navigation used to be wedged inside the opponent's card, which made leaving the game look
+ * like something you did to the opponent. It belongs to the screen, so it sits on the screen's own
+ * rail - and that rail was going to be empty space otherwise, so it carries the move number, which
+ * nothing else on the board tells you.
+ */
+@Composable
+private fun GameTopRail(
+    moveLabel: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val (colorPalette, typography) = LocalAppearance.current
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        HeaderIconButton(
+            icon = R.drawable.chevron_back,
+            color = colorPalette.text,
+            onClick = onBack
+        )
+
+        BasicText(
+            text = moveLabel,
+            style = typography.xxs.medium.secondary,
+            maxLines = 1,
+            modifier = Modifier.padding(end = 4.dp)
+        )
+    }
+}
+
+/**
  * How the portrait screen is divided.
  *
  * The board's share is large because the board is what the screen is for; the two seats take a
@@ -481,9 +513,9 @@ fun GameScreen(
  * than heights so the split survives a large font scale and a short screen, where fixed heights
  * would clip the text or run the board off the bottom.
  */
-private const val TopRegionWeight = 1f
+private const val TopRegionWeight = 1.35f
 private const val BoardRegionWeight = 4f
-private const val BottomRegionWeight = 1.5f
+private const val BottomRegionWeight = 1.15f
 
 /**
  * A clock for the move in front of you, not for the match.
