@@ -367,27 +367,31 @@ fun GameScreen(
                 // it can change it. That is the whole point: the board's position is a function of
                 // the window and nothing else, and it stays where the player last looked at it.
                 Box(
-                    contentAlignment = Alignment.BottomCenter,
                     modifier = Modifier
                         .weight(TopRegionWeight)
                         .fillMaxWidth()
                         .clipToBounds()
                 ) {
+                    // The rail sits at the top of the screen where a header belongs; the
+                    // opponent and what it is saying sit against the board, where they are read.
+                    // The slack goes between them rather than above everything.
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.verticalScroll(rememberScrollState())
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         GameTopRail(
                             moveLabel = presentation.moveLabel,
                             onBack = { backDispatcher?.onBackPressed() }
                         )
 
-                        SeatCard(
-                            seat = presentation.opponent,
-                            modifier = Modifier.testTag(AiPanelTag)
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SeatCard(
+                                seat = presentation.opponent,
+                                modifier = Modifier.testTag(AiPanelTag)
+                            )
 
-                        CommentaryStrip(commentary = presentation.commentary)
+                            CommentaryStrip(commentary = presentation.commentary)
+                        }
                     }
                 }
 

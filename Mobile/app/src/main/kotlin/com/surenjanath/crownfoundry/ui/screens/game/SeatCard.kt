@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.surenjanath.crownfoundry.R
@@ -31,6 +32,19 @@ import com.surenjanath.crownfoundry.utils.secondary
 import com.surenjanath.crownfoundry.utils.semiBold
 
 const val AiPanelTag = "aiPanel"
+
+/**
+ * Keep a slot's space whether or not it has anything in it.
+ *
+ * The card holds its height by drawing empty rows rather than by adding rows when there is news,
+ * which is what stops it shoving the board about. A row faded to nothing is still a row a screen
+ * reader will happily read out, though, so an invisible slot is taken out of the semantics tree
+ * as well - otherwise both seats would announce "to move" and every game would start with twelve
+ * pieces taken.
+ */
+private fun Modifier.holdingSpace(visible: Boolean): Modifier =
+    alpha(if (visible) 1f else 0f)
+        .then(if (visible) Modifier else Modifier.clearAndSetSemantics {})
 
 /**
  * One side of the board.
@@ -120,7 +134,7 @@ fun SeatCard(
                         text = "to move",
                         style = typography.xxs.semiBold.copy(color = colorPalette.accent),
                         maxLines = 1,
-                        modifier = Modifier.alpha(if (seat.isToMove) 1f else 0f)
+                        modifier = Modifier.holdingSpace(seat.isToMove)
                     )
                 }
 
@@ -145,7 +159,7 @@ fun SeatCard(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
-                        modifier = Modifier.alpha(if (seat.captured > 0) 1f else 0f)
+                        modifier = Modifier.holdingSpace(seat.captured > 0)
                     ) {
                         BasicText(text = "Taken:", style = typography.xxs.medium.secondary)
                         Spacer(
@@ -198,7 +212,7 @@ fun SeatCard(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier.alpha(if (seat.kings > 0) 1f else 0f)
+                    modifier = Modifier.holdingSpace(seat.kings > 0)
                 ) {
                     Image(
                         painter = painterResource(R.drawable.crown),
