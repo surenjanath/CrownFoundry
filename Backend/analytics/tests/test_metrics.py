@@ -190,6 +190,16 @@ class AnalyticsMetricsTest(TestCase):
         self.create_match(winner=AI_SIDE)
         self.assertEqual(summary(), ai_performance()["summary"])
 
+    def test_summary_does_not_build_series(self):
+        from unittest.mock import patch
+        from analytics import metrics as metrics_mod
+
+        self.create_match(winner=AI_SIDE, total_turns=12)
+        with patch.object(metrics_mod, "variant_performance", side_effect=AssertionError("series path")):
+            payload = metrics_mod.summary()
+        self.assertEqual(payload["total_matches"], 1)
+        self.assertEqual(payload["ai_wins"], 1)
+
     def test_draw_matches(self):
         # Requirement 11: Draw matches counted correctly
         self.create_match(winner=DRAW)
