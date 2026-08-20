@@ -66,7 +66,7 @@ class OfflineCheckersApi(
     private val store: LocalMatchStore,
     private val engine: EngineStore = EngineStore,
     private val preferences: EnginePreferences,
-    private val searchDepth: Int = 4,
+    private val searchDepth: Int = 6,
     private val nodeBudget: Int = DEFAULT_NODE_BUDGET
 ) : CheckersApi {
 
@@ -242,7 +242,7 @@ class OfflineCheckersApi(
                     knobs = knobsFor(match.difficulty, profile, searchDepth, nodeBudget),
                     memory = memory
                 )
-                val (move, considered) = agent.select(board, explore = true)
+                val (move, considered) = agent.select(board, explore = false, history = match.moves)
                 move to considered
             }
         } ?: return Outcome.Failure(

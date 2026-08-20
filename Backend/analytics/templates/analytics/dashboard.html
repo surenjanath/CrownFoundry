@@ -355,8 +355,24 @@
 
         .chart-container {
             position: relative;
-            height: 240px;
+            height: 300px;
             width: 100%;
+        }
+
+        .chart-empty {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 13px;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        .chart-empty[hidden] {
+            display: none;
         }
 
         .table-responsive {
@@ -606,17 +622,17 @@
         <div class="grid-4">
             <div class="card">
                 <div class="card-title">AI Win Rate</div>
-                <div class="stat-value" id="kpi-winrate">{{ summary.ai_win_rate|floatformat:1 }}%</div>
-                <div class="stat-subtitle">{{ summary.ai_wins }} wins out of {{ summary.total_matches }} matches</div>
+                <div class="stat-value" id="kpi-winrate">{% widthratio summary.ai_win_rate 1 100 %}%</div>
+                <div class="stat-subtitle" id="kpi-winrate-sub">{{ summary.ai_wins }} wins out of {{ summary.total_matches }} matches</div>
             </div>
             <div class="card">
                 <div class="card-title">Policy Generation</div>
                 <div class="stat-value" id="kpi-policy">v{{ summary.policy_version }}</div>
-                <div class="stat-subtitle">{{ summary.games_trained|default:25 }} self-play training games</div>
+                <div class="stat-subtitle" id="kpi-games-trained">{{ summary.games_trained|default:0 }} self-play training games</div>
             </div>
             <div class="card">
                 <div class="card-title">Mistake Repetition</div>
-                <div class="stat-value" id="kpi-mistakes">{{ summary.mistake_repetition_rate|floatformat:1 }}%</div>
+                <div class="stat-value" id="kpi-mistakes">{% widthratio summary.mistake_repetition_rate 1 100 %}%</div>
                 <div class="stat-subtitle">Memory replay blunder prevention</div>
             </div>
             <div class="card">
@@ -648,12 +664,11 @@
                     <div class="form-group">
                         <label class="form-label">Self-Play Games</label>
                         <div class="preset-buttons">
-                            <button type="button" class="preset-btn" onclick="setGames(25)">25 Games</button>
-                            <button type="button" class="preset-btn active" onclick="setGames(50)">50 Games</button>
-                            <button type="button" class="preset-btn" onclick="setGames(100)">100 Games</button>
-                            <button type="button" class="preset-btn" onclick="setGames(250)">250 Games</button>
+                            <button type="button" class="preset-btn" onclick="setGames(1000)">1k Games</button>
+                            <button type="button" class="preset-btn active" onclick="setGames(5000)">5k Games</button>
+                            <button type="button" class="preset-btn" onclick="setGames(25000)">25k Games</button>
                         </div>
-                        <input type="number" id="train-games" class="form-control" value="50" min="5" max="500">
+                        <input type="number" id="train-games" class="form-control" value="5000" min="5" max="25000">
                     </div>
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -671,15 +686,40 @@
                         </div>
                     </div>
 
+                    <div class="form-group">
+                        <label class="form-label">Curriculum</label>
+                        <select id="train-curriculum" class="form-control">
+                            <option value="curriculum" selected>Curriculum (random → greedy → self)</option>
+                            <option value="self">Self-play only</option>
+                            <option value="vs_greedy">Always vs greedy</option>
+                        </select>
+                    </div>
+
                     <div class="form-group" style="display: flex; align-items: center; gap: 10px; margin-top: 8px;">
                         <input type="checkbox" id="train-eval" checked style="accent-color: #ffffff;">
                         <label for="train-eval" style="font-size: 12px; color: var(--text-secondary); cursor: pointer;">
                             Benchmark against Random & Greedy baselines before and after
                         </label>
                     </div>
+                    <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="train-book" checked style="accent-color: #ffffff;">
+                        <label for="train-book" style="font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                            Seed games from the opening book
+                        </label>
+                    </div>
+                    <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="train-idle" {% if training_status.idle_enabled %}checked{% endif %} style="accent-color: #ffffff;" onchange="toggleIdle(this.checked)">
+                        <label for="train-idle" style="font-size: 12px; color: var(--text-secondary); cursor: pointer;">
+                            Learn in the background when idle
+                        </label>
+                    </div>
+                    <p id="idle-next" style="font-size: 11px; color: var(--text-muted); margin: 0 0 8px;">Idle trainer waits between batches.</p>
 
                     <button id="btn-start-train" class="btn btn-primary" style="width: 100%; margin-top: 10px;" onclick="triggerTraining()">
                         ⚡ Start Self-Play Training Session
+                    </button>
+                    <button id="btn-cancel-train" class="btn" style="width: 100%; margin-top: 8px;" onclick="cancelTraining()">
+                        Cancel current job
                     </button>
                 </div>
 
@@ -709,8 +749,8 @@
 
         <!-- Navigation Tabs -->
         <div class="tab-bar">
-            <div class="tab-item active" onclick="switchTab('tab-sandbox')">🎮 Interactive Board Sandbox & Replayer</div>
-            <div class="tab-item" onclick="switchTab('tab-charts')">📈 Learning Curves & Graphs</div>
+            <div class="tab-item active" onclick="switchTab('tab-charts')">📈 Learning Curves & Graphs</div>
+            <div class="tab-item" onclick="switchTab('tab-sandbox')">🎮 Interactive Board Sandbox & Replayer</div>
             <div class="tab-item" onclick="switchTab('tab-repertoire')">♟️ Opening Repertoire & Variants</div>
             <div class="tab-item" onclick="switchTab('tab-matches')">📋 Recent Matches Log</div>
             <div class="tab-item" onclick="switchTab('tab-runs')">⚙️ Training Runs Archive</div>
@@ -718,7 +758,7 @@
         </div>
 
         <!-- Tab 0: Interactive Board Sandbox & Replayer -->
-        <div id="tab-sandbox" class="tab-content active">
+        <div id="tab-sandbox" class="tab-content">
             <div class="grid-2">
                 <!-- Checkers Board UI -->
                 <div class="card">
@@ -833,24 +873,26 @@
         </div>
 
         <!-- Tab 1: Charts & Curves -->
-        <div id="tab-charts" class="tab-content">
+        <div id="tab-charts" class="tab-content active">
             <div class="grid-2">
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title">AI Win Rate Trajectory & Parity</div>
-                        <span class="badge">10-Game Window</span>
+                        <div class="card-title">AI Win Rate vs You</div>
+                        <span class="badge">10-game rolling</span>
                     </div>
                     <div class="chart-container">
+                        <div class="chart-empty" id="empty-winrate">No finished matches yet.</div>
                         <canvas id="chart-winrate"></canvas>
                     </div>
                 </div>
 
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title">Training Loss Over Time</div>
-                        <span class="badge">MSE Loss</span>
+                        <div class="card-title">Training Loss</div>
+                        <span class="badge">Self-play MSE</span>
                     </div>
                     <div class="chart-container">
+                        <div class="chart-empty" id="empty-loss">No training runs recorded yet.</div>
                         <canvas id="chart-loss"></canvas>
                     </div>
                 </div>
@@ -859,21 +901,47 @@
             <div class="grid-2">
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title">Game Length Distribution (Plies)</div>
-                        <span class="badge">Plies / Match</span>
+                        <div class="card-title">Match Length</div>
+                        <span class="badge">Plies per game</span>
                     </div>
                     <div class="chart-container">
+                        <div class="chart-empty" id="empty-gamelength">No finished matches yet.</div>
                         <canvas id="chart-gamelength"></canvas>
                     </div>
                 </div>
 
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title">Mistake Repetition Frequency</div>
-                        <span class="badge">Blunder Ratio</span>
+                        <div class="card-title">Repeated Mistakes</div>
+                        <span class="badge">Known-blunder rate</span>
                     </div>
                     <div class="chart-container">
+                        <div class="chart-empty" id="empty-mistakes">No finished matches yet.</div>
                         <canvas id="chart-mistakes"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2" style="margin-top: 20px;">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Captures</div>
+                        <span class="badge">AI vs Human</span>
+                    </div>
+                    <div class="chart-container">
+                        <div class="chart-empty" id="empty-captures">No finished matches yet.</div>
+                        <canvas id="chart-captures"></canvas>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">Length Buckets</div>
+                        <span class="badge">Short / mid / long</span>
+                    </div>
+                    <div class="chart-container">
+                        <div class="chart-empty" id="empty-buckets">No finished matches yet.</div>
+                        <canvas id="chart-buckets"></canvas>
                     </div>
                 </div>
             </div>
@@ -899,7 +967,7 @@
                             </div>
                             <div style="text-align: right;">
                                 <div style="font-size: 15px; font-weight: 700; color: #ffffff; font-family: var(--font-mono);">
-                                    {{ v.ai_win_rate|floatformat:1 }}%
+                                    {% widthratio v.ai_win_rate 1 100 %}%
                                 </div>
                                 <div style="font-size: 11px; color: var(--text-muted);">
                                     {{ v.ai_wins }}W / {{ v.human_wins }}L / {{ v.draws }}D
@@ -933,7 +1001,7 @@
                                 <tr>
                                     <td><strong style="color: #ffffff; font-family: var(--font-mono);">{{ r.opening_move }}</strong></td>
                                     <td>{{ r.times_played }}</td>
-                                    <td><strong style="font-family: var(--font-mono);">{{ r.ai_win_rate|floatformat:1 }}%</strong></td>
+                                    <td><strong style="font-family: var(--font-mono);">{% widthratio r.ai_win_rate 1 100 %}%</strong></td>
                                     <td><span style="color: var(--text-muted); font-size: 11px;">{{ r.ai_wins }}W - {{ r.human_wins }}L</span></td>
                                 </tr>
                                 {% empty %}
@@ -1062,7 +1130,7 @@
                         {% if m.unlocked %}
                         <span class="outcome-badge outcome-win">Unlocked</span>
                         {% else %}
-                        <span class="badge">{{ m.progress|floatformat:0 }}%</span>
+                        <span class="badge">{% widthratio m.progress 1 100 %}%</span>
                         {% endif %}
                     </div>
                     <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">{{ m.description }}</div>
@@ -1078,8 +1146,9 @@
     </div>
 
     <script>
-        const rawData = JSON.parse('{{ raw_json|safe }}');
+        const rawData = {{ raw_json|safe }};
         let isTrainingPolling = false;
+        const charts = {};
 
         // Interactive Board Geometry: Standard English Draughts 32 playable squares mapping
         // 8x8 grid: (row, col) to square index (1..32)
@@ -1414,6 +1483,8 @@
             const depth = parseInt(document.getElementById('train-depth').value, 10) || 2;
             const epsilon = parseFloat(document.getElementById('train-epsilon').value) || 0.25;
             const evaluate = document.getElementById('train-eval').checked;
+            const curriculum = document.getElementById('train-curriculum').value;
+            const use_book = document.getElementById('train-book').checked;
 
             btn.disabled = true;
             btn.innerText = "Initiating Session...";
@@ -1422,7 +1493,7 @@
                 const response = await fetch('/api/analytics/train/', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ games, depth, epsilon, evaluate })
+                    body: JSON.stringify({ games, depth, epsilon, evaluate, curriculum, use_book })
                 });
                 const result = await response.json();
                 if (result.ok) {
@@ -1439,6 +1510,58 @@
                 btn.innerText = "⚡ Start Self-Play Training Session";
             }
         }
+
+        async function cancelTraining() {
+            try {
+                const response = await fetch('/api/analytics/train/cancel/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const result = await response.json();
+                addLogLine(result.ok ? '[CANCEL] Stop after the current game.' : `[ERROR] ${result.detail || result.error}`);
+            } catch (err) {
+                addLogLine(`[NETWORK ERROR] ${err.message}`);
+            }
+        }
+
+        async function toggleIdle(enabled) {
+            try {
+                const response = await fetch('/api/analytics/train/idle/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled })
+                });
+                const result = await response.json();
+                addLogLine(result.ok ? `[IDLE] ${enabled ? 'on' : 'off'}` : `[ERROR] ${result.detail || result.error}`);
+            } catch (err) {
+                addLogLine(`[NETWORK ERROR] ${err.message}`);
+            }
+        }
+
+        function updateIdleLabel(st) {
+            const el = document.getElementById('idle-next');
+            if (!el) return;
+            if (!st.idle_enabled) {
+                el.innerText = 'Idle trainer is off.';
+                return;
+            }
+            if (st.next_idle_at) {
+                const secs = Math.max(0, Math.round(st.next_idle_at - (Date.now() / 1000)));
+                el.innerText = secs ? `Next idle batch in ~${secs}s.` : 'Idle batch starting…';
+                return;
+            }
+            el.innerText = 'Idle trainer waits between batches.';
+        }
+
+        async function refreshIdleLabel() {
+            try {
+                const res = await fetch('/api/analytics/train/status/');
+                const data = await res.json();
+                if (data.ok && data.status) updateIdleLabel(data.status);
+            } catch (e) { /* ignore */ }
+        }
+        refreshIdleLabel();
 
         function addLogLine(text) {
             const terminal = document.getElementById('train-terminal');
@@ -1475,6 +1598,8 @@
                         });
                         terminal.scrollTop = terminal.scrollHeight;
 
+                        updateIdleLabel(st);
+
                         if (!st.is_running) {
                             clearInterval(interval);
                             isTrainingPolling = false;
@@ -1495,169 +1620,255 @@
             try {
                 const res = await fetch('/api/analytics/ai-performance/');
                 const data = await res.json();
-                if (data.ok && data.summary) {
-                    document.getElementById('kpi-winrate').innerText = `${(data.summary.ai_win_rate * 100).toFixed(1)}%`;
-                    document.getElementById('kpi-policy').innerText = `v${data.summary.policy_version}`;
-                    document.getElementById('header-policy').innerText = data.summary.policy_version;
-                    document.getElementById('header-elo').innerText = data.summary.elo;
-                    document.getElementById('kpi-mistakes').innerText = `${(data.summary.mistake_repetition_rate * 100).toFixed(1)}%`;
-                    document.getElementById('kpi-turns').innerText = data.summary.avg_turns ? data.summary.avg_turns.toFixed(1) : "0.0";
+                if (data.ok) {
+                    rawData.performance = data;
+                    applySummary(data.summary);
+                    renderCharts(data);
                 }
             } catch (err) {
                 console.error("Failed to refresh analytics", err);
             }
         }
 
-        function initCharts() {
-            const perf = rawData.performance || {};
+        function pct(rate) {
+            return `${((Number(rate) || 0) * 100).toFixed(1)}%`;
+        }
+
+        function applySummary(summary) {
+            if (!summary) return;
+            const set = (id, text) => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = text;
+            };
+            set('kpi-winrate', pct(summary.ai_win_rate));
+            set('kpi-winrate-sub', `${summary.ai_wins || 0} wins out of ${summary.total_matches || 0} matches`);
+            set('kpi-policy', `v${summary.policy_version ?? 0}`);
+            set('header-policy', summary.policy_version ?? 0);
+            set('header-elo', summary.elo ?? 1200);
+            set('kpi-games-trained', `${summary.games_trained || 0} self-play training games`);
+            set('kpi-mistakes', pct(summary.mistake_repetition_rate));
+            set('kpi-turns', summary.avg_turns ? Number(summary.avg_turns).toFixed(1) : '0.0');
+        }
+
+        function matchLabels(series) {
+            return (series || []).map(s => `M${s.match_index}`);
+        }
+
+        function setEmpty(id, empty) {
+            const el = document.getElementById(id);
+            if (el) el.hidden = !empty;
+        }
+
+        function axisDefaults(yMax) {
+            return {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: '#a1a1aa', font: { size: 11 }, boxWidth: 10 } },
+                    tooltip: { backgroundColor: '#18181b', borderColor: '#3f3f46', borderWidth: 1 }
+                },
+                scales: {
+                    y: {
+                        min: 0,
+                        max: yMax,
+                        grid: { color: '#27272a' },
+                        ticks: yMax === 100 ? { callback: v => `${v}%` } : { color: '#71717a' }
+                    },
+                    x: {
+                        grid: { color: '#18181b' },
+                        ticks: { maxTicksLimit: 12, color: '#71717a' }
+                    }
+                }
+            };
+        }
+
+        function upsertChart(key, canvasId, config, hasData, emptyId) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            setEmpty(emptyId, !hasData);
+            if (charts[key]) {
+                charts[key].data.labels = config.data.labels;
+                charts[key].data.datasets = config.data.datasets;
+                charts[key].update('none');
+                return;
+            }
+            charts[key] = new Chart(canvas, config);
+        }
+
+        function renderCharts(perf) {
             Chart.defaults.color = '#71717a';
             Chart.defaults.font.family = "'Inter', sans-serif";
 
-            const wrCtx = document.getElementById('chart-winrate');
-            if (wrCtx) {
-                const series = perf.win_rate_series || [];
-                const labels = series.map(s => `M${s.match_number}`);
-                const aiRate = series.map(s => s.ai_cumulative_win_rate * 100);
-                const rolling = series.map(s => s.ai_rolling_win_rate !== null ? s.ai_rolling_win_rate * 100 : null);
-
-                new Chart(wrCtx, {
-                    type: 'line',
-                    data: {
-                        labels: labels.length ? labels : ['M1'],
-                        datasets: [
-                            {
-                                label: 'AI Cumulative Win %',
-                                data: aiRate.length ? aiRate : [0],
-                                borderColor: '#ffffff',
-                                backgroundColor: 'rgba(255, 255, 255, 0.05)',
-                                fill: true,
-                                tension: 0.3,
-                                borderWidth: 2,
-                                pointRadius: 3,
-                                pointBackgroundColor: '#ffffff'
-                            },
-                            {
-                                label: '10-Game Rolling Parity',
-                                data: rolling.length ? rolling : [null],
-                                borderColor: '#71717a',
-                                borderDash: [4, 4],
-                                tension: 0.3,
-                                borderWidth: 1.5,
-                                pointRadius: 0
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { labels: { color: '#a1a1aa', font: { size: 11 } } } },
-                        scales: {
-                            y: { min: 0, max: 100, grid: { color: '#27272a' }, ticks: { callback: v => `${v}%` } },
-                            x: { grid: { color: '#18181b' } }
-                        }
-                    }
-                });
-            }
-
-            const lossCtx = document.getElementById('chart-loss');
-            if (lossCtx) {
-                const training = perf.training || [];
-                const labels = training.map(t => `v${t.policy_version}`);
-                const losses = training.map(t => t.loss);
-
-                new Chart(lossCtx, {
-                    type: 'line',
-                    data: {
-                        labels: labels.length ? labels : ['v0'],
-                        datasets: [{
-                            label: 'Training Loss (MSE)',
-                            data: losses.length ? losses : [0],
+            const winSeries = perf.win_rate_series || [];
+            const winLabels = matchLabels(winSeries);
+            upsertChart('winrate', 'chart-winrate', {
+                type: 'line',
+                data: {
+                    labels: winLabels,
+                    datasets: [
+                        {
+                            label: 'Cumulative AI win %',
+                            data: winSeries.map(s => (s.cumulative_win_rate || 0) * 100),
                             borderColor: '#ffffff',
-                            backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                            fill: true,
-                            tension: 0.2,
-                            borderWidth: 2,
-                            pointRadius: 4,
-                            pointBackgroundColor: '#ffffff'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            y: { grid: { color: '#27272a' } },
-                            x: { grid: { color: '#18181b' } }
-                        }
-                    }
-                });
-            }
-
-            const glCtx = document.getElementById('chart-gamelength');
-            if (glCtx) {
-                const series = perf.game_length_series || [];
-                const labels = series.map(s => `M${s.match_number}`);
-                const turns = series.map(s => s.total_turns);
-
-                new Chart(glCtx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels.length ? labels : ['M1'],
-                        datasets: [{
-                            label: 'Turns Played',
-                            data: turns.length ? turns : [0],
-                            backgroundColor: '#3f3f46',
-                            hoverBackgroundColor: '#ffffff',
-                            borderRadius: 4
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            y: { grid: { color: '#27272a' } },
-                            x: { grid: { color: '#18181b' } }
-                        }
-                    }
-                });
-            }
-
-            const mstkCtx = document.getElementById('chart-mistakes');
-            if (mstkCtx) {
-                const series = perf.mistake_series || [];
-                const labels = series.map(s => `M${s.match_number}`);
-                const rates = series.map(s => s.repeated_mistake_ratio * 100);
-
-                new Chart(mstkCtx, {
-                    type: 'line',
-                    data: {
-                        labels: labels.length ? labels : ['M1'],
-                        datasets: [{
-                            label: 'Repeated Mistake Rate %',
-                            data: rates.length ? rates : [0],
-                            borderColor: '#a1a1aa',
-                            backgroundColor: 'rgba(161, 161, 170, 0.1)',
+                            backgroundColor: 'rgba(255, 255, 255, 0.06)',
                             fill: true,
                             tension: 0.3,
                             borderWidth: 2,
-                            pointRadius: 3
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { display: false } },
-                        scales: {
-                            y: { min: 0, max: 100, grid: { color: '#27272a' }, ticks: { callback: v => `${v}%` } },
-                            x: { grid: { color: '#18181b' } }
+                            pointRadius: winLabels.length > 40 ? 0 : 3,
+                            pointBackgroundColor: '#ffffff'
+                        },
+                        {
+                            label: 'Last 10 games',
+                            data: winSeries.map(s => s.rolling_win_rate == null ? null : s.rolling_win_rate * 100),
+                            borderColor: '#4ade80',
+                            borderDash: [5, 4],
+                            tension: 0.3,
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            spanGaps: true
+                        },
+                        {
+                            label: 'Parity 50%',
+                            data: winLabels.map(() => 50),
+                            borderColor: 'rgba(161, 161, 170, 0.45)',
+                            borderDash: [2, 4],
+                            pointRadius: 0,
+                            borderWidth: 1
                         }
+                    ]
+                },
+                options: axisDefaults(100)
+            }, winSeries.length > 0, 'empty-winrate');
+
+            const training = perf.training || [];
+            upsertChart('loss', 'chart-loss', {
+                type: 'line',
+                data: {
+                    labels: training.map(t => `v${t.policy_version}`),
+                    datasets: [{
+                        label: 'Training loss',
+                        data: training.map(t => t.loss),
+                        borderColor: '#fbbf24',
+                        backgroundColor: 'rgba(251, 191, 36, 0.08)',
+                        fill: true,
+                        tension: 0.2,
+                        borderWidth: 2,
+                        pointRadius: training.length > 40 ? 0 : 3,
+                        pointBackgroundColor: '#fbbf24'
+                    }]
+                },
+                options: {
+                    ...axisDefaults(undefined),
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                afterLabel: (ctx) => {
+                                    const row = training[ctx.dataIndex];
+                                    return row ? `${row.games_trained || 0} games · ${row.kind || ''}` : '';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#27272a' } },
+                        x: { grid: { color: '#18181b' }, ticks: { maxTicksLimit: 12 } }
                     }
-                });
-            }
+                }
+            }, training.length > 0, 'empty-loss');
+
+            const lengths = perf.game_length_series || [];
+            upsertChart('gamelength', 'chart-gamelength', {
+                type: 'bar',
+                data: {
+                    labels: matchLabels(lengths),
+                    datasets: [{
+                        label: 'Plies',
+                        data: lengths.map(s => s.turns || 0),
+                        backgroundColor: '#3f3f46',
+                        hoverBackgroundColor: '#ffffff',
+                        borderRadius: 4
+                    }]
+                },
+                options: { ...axisDefaults(undefined), plugins: { legend: { display: false } } }
+            }, lengths.length > 0, 'empty-gamelength');
+
+            const mistakes = perf.mistake_series || [];
+            upsertChart('mistakes', 'chart-mistakes', {
+                type: 'line',
+                data: {
+                    labels: matchLabels(mistakes),
+                    datasets: [{
+                        label: 'Repeated-mistake %',
+                        data: mistakes.map(s => (s.rate || 0) * 100),
+                        borderColor: '#f87171',
+                        backgroundColor: 'rgba(248, 113, 113, 0.1)',
+                        fill: true,
+                        tension: 0.3,
+                        borderWidth: 2,
+                        pointRadius: mistakes.length > 40 ? 0 : 3
+                    }]
+                },
+                options: axisDefaults(100)
+            }, mistakes.length > 0, 'empty-mistakes');
+
+            const captures = perf.capture_series || [];
+            upsertChart('captures', 'chart-captures', {
+                type: 'bar',
+                data: {
+                    labels: matchLabels(captures),
+                    datasets: [
+                        {
+                            label: 'AI captures',
+                            data: captures.map(s => s.ai_captures || 0),
+                            backgroundColor: '#ffffff',
+                            borderRadius: 3
+                        },
+                        {
+                            label: 'Your captures',
+                            data: captures.map(s => s.human_captures || 0),
+                            backgroundColor: '#52525b',
+                            borderRadius: 3
+                        }
+                    ]
+                },
+                options: axisDefaults(undefined)
+            }, captures.length > 0, 'empty-captures');
+
+            const buckets = perf.length_distribution || {};
+            const bucketRows = ['short', 'medium', 'long']
+                .map(key => buckets[key])
+                .filter(Boolean);
+            upsertChart('buckets', 'chart-buckets', {
+                type: 'bar',
+                data: {
+                    labels: bucketRows.map(b => b.label),
+                    datasets: [
+                        {
+                            label: 'Matches',
+                            data: bucketRows.map(b => b.count || 0),
+                            backgroundColor: '#3f3f46',
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'AI wins',
+                            data: bucketRows.map(b => b.ai_wins || 0),
+                            backgroundColor: '#4ade80',
+                            borderRadius: 4
+                        }
+                    ]
+                },
+                options: axisDefaults(undefined)
+            }, bucketRows.some(b => (b.count || 0) > 0), 'empty-buckets');
+        }
+
+        function initCharts() {
+            renderCharts(rawData.performance || {});
         }
 
         document.addEventListener('DOMContentLoaded', () => {
+            applySummary((rawData.performance || {}).summary || {});
             initBoardUI();
             initCharts();
             if (rawData.training_status && rawData.training_status.is_running) {

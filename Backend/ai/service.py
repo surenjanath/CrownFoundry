@@ -10,6 +10,7 @@ The signatures and the shape of :class:`AITurnResult` are fixed by ARCHITECTURE.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -74,17 +75,23 @@ def _current_board(match):
 def ai_turn(match) -> AITurnResult:
     """Choose the AI's move for ``match`` and narrate it. Does not persist board state."""
     from . import ollama
-    from .agent import AdaptiveAgent
+    from .agent import AdaptiveAgent, reconstruct
     from .models import AIMoveMemory
+    from .opening_book import book_move
 
     board = _current_board(match)
     agent = _agent_for(match)
-    move, considered = agent.select(board, explore=True)
+
+    history = [ply.move.notation() for ply in reconstruct(match)]
+    book = book_move(board, history)
+    if book is not None:
+        move = book
+        considered = [ScoredMove(move.notation(), 10.0)]
+    else:
+        move, considered = agent.select(board, explore=False)
     move_index = {m.notation(): m for m in board.legal_moves()}
 
     narration = ollama.narrate(board, move, considered, move_index, side=board.side_to_move)
-    if narration.notation != move.notation() and narration.notation in move_index:
-        move = move_index[narration.notation]
 
     notation = move.notation()
     q_value = next((c.q for c in considered if c.notation == notation), considered[0].q)
@@ -120,7 +127,7 @@ def ai_turn(match) -> AITurnResult:
     )
 
 
-def ai_status() -> dict:
+def _compute_ai_status() -> dict:
     """``{"policy_version", "games_trained", "win_rate", "elo"}`` for status cards."""
     from .models import DEFAULT_ELO, RLPolicyWeights
 
@@ -155,6 +162,26 @@ def ai_status() -> dict:
     }
 
 
+_STATUS_TTL = 5.0
+_status_cache: dict = {"at": 0.0, "value": None}
+
+
+def clear_ai_status_cache() -> None:
+    _status_cache["at"] = 0.0
+    _status_cache["value"] = None
+
+
+def ai_status() -> dict:
+    now = time.monotonic()
+    cached = _status_cache["value"]
+    if cached is not None and (now - _status_cache["at"]) < _STATUS_TTL:
+        return cached
+    value = _compute_ai_status()
+    _status_cache["at"] = now
+    _status_cache["value"] = value
+    return value
+
+
 def ollama_status() -> dict:
     """``{"available": bool, "model": str}`` — never raises, never blocks for long."""
     from . import ollama
@@ -186,12 +213,17 @@ def on_move_played(match, state, move, *, by: str) -> None:
             logger.exception("online learning step failed for match %s", getattr(match, "pk", "?"))
 
 
-def on_match_finished(match) -> None:
-    """Hook after a match ends. Queues the post-match Q update."""
+def on_match_finished(match, *, train: bool = True) -> None:
+    """Hook after a match ends. Updates the opponent model and queues the post-match Q update.
+
+    ``train=False`` keeps the per-player half - the opponent model that shapes *this* player's
+    adaptive difficulty - while withholding the game from the shared policy. That split exists
+    for offline matches synced up from a device: see ``ai.views._finish_hook``.
+    """
     from . import conf, tasks
 
     _update_opponent_model(match)
-    if not conf.get("POST_MATCH_LEARNING", True):
+    if not train or not conf.get("POST_MATCH_LEARNING", True):
         return
     match_id = getattr(match, "match_id", None) or getattr(match, "pk", None)
     if match_id is None:

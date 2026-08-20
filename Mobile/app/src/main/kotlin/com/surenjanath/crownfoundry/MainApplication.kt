@@ -5,7 +5,7 @@ import androidx.core.content.edit
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
 import com.surenjanath.crownfoundry.offline.Offline
 import com.surenjanath.crownfoundry.utils.backendUrlKey
-import com.surenjanath.crownfoundry.utils.defaultBackendUrl
+import com.surenjanath.crownfoundry.utils.effectiveBackendUrl
 import com.surenjanath.crownfoundry.utils.playerIdKey
 import com.surenjanath.crownfoundry.utils.preferences
 import java.util.UUID
@@ -19,7 +19,12 @@ class MainApplication : Application() {
             val existing = getString(playerIdKey, null)
                 ?: UUID.randomUUID().toString().also { edit { putString(playerIdKey, it) } }
 
-            CrownFoundryClient.baseUrl = getString(backendUrlKey, null) ?: defaultBackendUrl
+            // Left at its own default when this build ships without a server: pointing the
+            // client at a placeholder would have every screen resolve a hostname that is not
+            // meant to exist. Offline.backendAvailable is what stops the calls being made.
+            effectiveBackendUrl(getString(backendUrlKey, null))?.let {
+                CrownFoundryClient.baseUrl = it
+            }
             existing
         }
 

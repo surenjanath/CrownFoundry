@@ -12,7 +12,7 @@ from django.test import TestCase
 from ai import service, tasks
 from ai.agent import clear_policy_cache, reset_shared_replay
 from ai.models import DEFAULT_ELO, AIMoveMemory, RLPolicyWeights, TrainingRun
-from ai.service import AITurnResult, ScoredMove
+from ai.service import AITurnResult, ScoredMove, clear_ai_status_cache
 from game.engine.board import Board
 from game.engine.notation import BLACK, WHITE
 from game.models import GameState, Match, PlayerProfile
@@ -30,8 +30,10 @@ class ServiceTestCase(TestCase):
 
         clear_policy_cache()
         reset_shared_replay()
+        clear_ai_status_cache()
         self.addCleanup(clear_policy_cache)
         self.addCleanup(reset_shared_replay)
+        self.addCleanup(clear_ai_status_cache)
 
         overrides = cf(REPLAY_PATH=str(self.replay_path), TASKS_EAGER=True, OLLAMA_ENABLED=False)
         overrides.enable()
@@ -116,20 +118,29 @@ class AiTurnTests(ServiceTestCase):
         AIMoveMemory.objects.update(reward_score=-8.0)
 
         # Force the same choice by leaving only that move on the shortlist Ollama sees.
-        with mock.patch("ai.agent.AdaptiveAgent.select",
-                        return_value=(first.move, [ScoredMove(first.move.notation(), 1.0)])):
-            service.ai_turn(self.match)
+        # Book is patched off so this test is about memory, not theory.
+        with mock.patch("ai.opening_book.book_move", return_value=None):
+            with mock.patch("ai.agent.AdaptiveAgent.select",
+                            return_value=(first.move, [ScoredMove(first.move.notation(), 1.0)])):
+                service.ai_turn(self.match)
 
         latest = AIMoveMemory.objects.order_by("-id").first()
         self.assertEqual(latest.chosen_move, first.move.notation())
         self.assertTrue(latest.was_repeat_mistake)
 
-    def test_ollama_can_override_the_choice_within_the_shortlist(self):
+    def test_after_eleven_fifteen_the_ai_plays_a_book_reply(self):
+        from ai.opening_book import BOOK
+
+        self.play(["11-15"])
+        result = service.ai_turn(self.match)
+        self.assertIn(result.move, self.match.board().legal_moves())
+        self.assertIn(BOOK._normalize(result.move.notation()), BOOK.trie[BOOK._normalize("11-15")])
+
+    def test_ollama_narrates_but_does_not_override_the_choice(self):
         self.play(["11-15"])
         board = self.match.board()
-        rl_move = service.ai_turn(self.match)
-        alternative = next(m for m in board.legal_moves()
-                           if m.notation() != rl_move.move.notation())
+        chosen = next(iter(board.legal_moves()))
+        alternative = next(m for m in board.legal_moves() if m.notation() != chosen.notation())
 
         payload = {"message": {"content":
                                f'{{"move": "{alternative.notation()}", "reason": "Trap set."}}'}}
@@ -144,15 +155,15 @@ class AiTurnTests(ServiceTestCase):
                 return payload
 
         with cf(REPLAY_PATH=str(self.replay_path), TASKS_EAGER=True, OLLAMA_ENABLED=True):
-            with mock.patch("ai.agent.AdaptiveAgent.select", return_value=(
-                    rl_move.move,
-                    [ScoredMove(rl_move.move.notation(), 1.0),
-                     ScoredMove(alternative.notation(), 0.5)])):
-                with mock.patch.object(service, "ai_turn", service.ai_turn):
+            with mock.patch("ai.opening_book.book_move", return_value=None):
+                with mock.patch("ai.agent.AdaptiveAgent.select", return_value=(
+                        chosen,
+                        [ScoredMove(chosen.notation(), 1.0),
+                         ScoredMove(alternative.notation(), 0.5)])):
                     with mock.patch("ai.ollama.requests.post", return_value=Resp()):
                         result = service.ai_turn(self.match)
 
-        self.assertEqual(result.move.notation(), alternative.notation())
+        self.assertEqual(result.move.notation(), chosen.notation())
         self.assertEqual(result.reasoning_source, "ollama")
         self.assertEqual(result.reasoning, "Trap set.")
 
@@ -183,6 +194,19 @@ class AiTurnTests(ServiceTestCase):
 
 
 class StatusTests(ServiceTestCase):
+    def test_ai_status_is_cached_for_five_seconds(self):
+        from ai import service as svc
+
+        svc.clear_ai_status_cache()
+        with mock.patch.object(svc, "_compute_ai_status", wraps=svc._compute_ai_status) as compute:
+            with mock.patch("ai.service.time.monotonic", side_effect=[10.0, 12.0, 16.0]):
+                first = svc.ai_status()
+                second = svc.ai_status()
+                third = svc.ai_status()
+        self.assertEqual(first, second)
+        self.assertEqual(second, third)
+        self.assertEqual(compute.call_count, 2)
+
     def test_ai_status_on_an_empty_database_returns_sane_defaults(self):
         RLPolicyWeights.objects.all().delete()
         Match.objects.all().delete()

@@ -66,7 +66,7 @@ internal fun JsonObject.okFlag(): Boolean? = (this["ok"] as? JsonPrimitive)
 internal fun httpFailure(status: Int, body: String): ApiError {
     val dto = runCatching { apiJson.decodeFromString(ErrorDto.serializer(), body) }.getOrNull()
     val code = dto?.error?.takeIf { it.isNotBlank() } ?: "http_$status"
-    val detail = dto?.detail?.takeIf { it.isNotBlank() } ?: recoverDetail(body)
+    val detail = dto?.detail?.takeIf { it.isNotBlank() } ?: recoverDetail(status, body)
 
     return when {
         // Checked before the status so a `"ok": false` 200 still redraws the board's hints.
@@ -76,10 +76,58 @@ internal fun httpFailure(status: Int, body: String): ApiError {
     }
 }
 
-/** A Django debug page or a proxy's plain text still carries a hint worth showing. */
-private fun recoverDetail(body: String): String = body.trim().let {
-    if (it.length > 200) it.take(200) + "…" else it
+/**
+ * A readable sentence from a response that was not the JSON we asked for.
+ *
+ * Something in front of the referee - Django's own error pages, a proxy, a captive portal - answers
+ * in HTML, and the first 200 characters of HTML are `<!DOCTYPE html><html lang="en"><head><meta…`.
+ * Showing that to a player is worse than showing nothing: it reads as the app being broken rather
+ * than the server being unreachable, and it buries the one useful word on the page.
+ *
+ * Django puts that useful word in the `<title>` - "Bad Request (400)", "Forbidden (403)" - so it is
+ * preferred, then any real text on the page, and only then a plain statement of what happened.
+ */
+private fun recoverDetail(status: Int, body: String): String {
+    val trimmed = body.trim()
+    if (trimmed.isEmpty()) return "The server returned $status with an empty body."
+
+    if (!looksLikeMarkup(trimmed)) {
+        return if (trimmed.length > 200) trimmed.take(200) + "…" else trimmed
+    }
+
+    TITLE.find(trimmed)?.groupValues?.getOrNull(1)?.let { title ->
+        val cleaned = collapse(title)
+        // Django names the status in its title ("Bad Request (400)"); python's http.server just
+        // says "Error response", which on its own tells the player nothing. Add the code unless
+        // it is already there, so every one of these reads as a specific thing that happened.
+        if (cleaned.isNotBlank()) {
+            return if (cleaned.contains(status.toString())) "The server answered: $cleaned"
+            else "The server answered $status: $cleaned"
+        }
+    }
+
+    val text = collapse(
+        trimmed
+            .replace(SCRIPT_OR_STYLE, " ")
+            .replace(TAG, " ")
+            .replace(ENTITY, " ")
+    )
+    if (text.isNotBlank()) return if (text.length > 200) text.take(200) + "…" else text
+
+    return "The server returned $status as a web page instead of data."
 }
+
+private fun looksLikeMarkup(body: String): Boolean =
+    body.startsWith("<") || body.contains("<html", ignoreCase = true)
+
+private fun collapse(raw: String): String = raw.replace(WHITESPACE, " ").trim()
+
+private val TITLE = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+private val SCRIPT_OR_STYLE =
+    Regex("<(script|style)[^>]*>.*?</\\1>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+private val TAG = Regex("<[^>]*>")
+private val ENTITY = Regex("&[a-zA-Z#0-9]{1,8};")
+private val WHITESPACE = Regex("\\s+")
 
 /**
  * Ktor's exceptions in the board's terms. The cause chain is walked because the engine wraps

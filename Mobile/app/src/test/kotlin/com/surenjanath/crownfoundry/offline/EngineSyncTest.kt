@@ -73,6 +73,17 @@ class EngineSyncTest {
     }
 
     @Test
+    fun `the download is pinned to the version the manifest named`() = runTest {
+        // Otherwise training publishing a new policy between the manifest and the download would
+        // have the device verify vN+1 bytes against a vN checksum and discard a sound engine.
+        api.publish(version = 7, elo = 1300)
+
+        sync.refresh()
+
+        assertEquals(7, api.lastRequestedVersion)
+    }
+
+    @Test
     fun `the first refresh downloads and installs`() = runTest {
         api.publish(version = 3, elo = 1240)
 
@@ -340,6 +351,10 @@ private class FakeEngineApi : EngineApi {
     var downloads = 0
         private set
 
+    /** The version the client asked for, so tests can assert it pinned the manifest's. */
+    var lastRequestedVersion: Int? = null
+        private set
+
     val uploaded = mutableListOf<OfflineMatchDto>()
 
     fun publish(version: Int, elo: Int = 1200, format: Int = ARTIFACT_FORMAT) {
@@ -364,8 +379,9 @@ private class FakeEngineApi : EngineApi {
     override suspend fun engineManifest(): Outcome<EngineManifestDto> =
         manifestOutcome ?: Outcome.Success(manifest)
 
-    override suspend fun downloadEngine(): Outcome<ByteArray> {
+    override suspend fun downloadEngine(version: Int?): Outcome<ByteArray> {
         downloads++
+        lastRequestedVersion = version
         return Outcome.Success(
             when {
                 truncateDownload -> blob.copyOf(blob.size / 2)

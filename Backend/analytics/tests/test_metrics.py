@@ -190,6 +190,16 @@ class AnalyticsMetricsTest(TestCase):
         self.create_match(winner=AI_SIDE)
         self.assertEqual(summary(), ai_performance()["summary"])
 
+    def test_summary_does_not_build_series(self):
+        from unittest.mock import patch
+        from analytics import metrics as metrics_mod
+
+        self.create_match(winner=AI_SIDE, total_turns=12)
+        with patch.object(metrics_mod, "variant_performance", side_effect=AssertionError("series path")):
+            payload = metrics_mod.summary()
+        self.assertEqual(payload["total_matches"], 1)
+        self.assertEqual(payload["ai_wins"], 1)
+
     def test_draw_matches(self):
         # Requirement 11: Draw matches counted correctly
         self.create_match(winner=DRAW)
@@ -200,11 +210,12 @@ class AnalyticsMetricsTest(TestCase):
     def test_policy_version_and_elo(self):
         # Requirement 12: Policy version and elo from active RLPolicyWeights row
         RLPolicyWeights.objects.create(version=1, is_active=False, elo_rating=1300)
-        RLPolicyWeights.objects.create(version=2, is_active=True, elo_rating=1500)
+        RLPolicyWeights.objects.create(version=2, is_active=True, elo_rating=1500, games_trained=1679)
         
         data = ai_performance()
         self.assertEqual(data["summary"]["policy_version"], 2)
         self.assertEqual(data["summary"]["elo"], 1500)
+        self.assertEqual(data["summary"]["games_trained"], 1679)
 
     def test_streaks_and_difficulty_breakdown(self):
         m1 = self.create_match(winner=AI_SIDE)
@@ -246,3 +257,36 @@ class AnalyticsMetricsTest(TestCase):
         badges = milestones()
         self.assertGreater(len(badges), 0)
         self.assertTrue(any(b["id"] == "first_match" and b["unlocked"] for b in badges))
+
+    def test_variant_performance_buckets_from_rules_data(self):
+        from analytics.metrics import variant_performance
+
+        cases = [
+            ({}, "Full Modern (Flying + Back)"),
+            ({"flying_kings": True, "men_capture_backwards": True}, "Full Modern (Flying + Back)"),
+            ({"flying_kings": True, "men_capture_backwards": False}, "Flying Kings"),
+            ({"flying_kings": False, "men_capture_backwards": True}, "Men Capture Backwards"),
+            ({"flying_kings": False, "men_capture_backwards": False}, "Standard English Draughts"),
+        ]
+        for rules, bucket in cases:
+            match = self.create_match(winner=AI_SIDE)
+            match.rules_data = rules
+            match.save()
+            rows = {row["variant"]: row for row in variant_performance([match])}
+            self.assertEqual(rows[bucket]["total_matches"], 1, bucket)
+            Match.objects.all().delete()
+
+    def test_evaluate_position_empty_fen_is_the_opening(self):
+        from analytics.metrics import evaluate_position
+        from game.engine import Board
+
+        data = evaluate_position(None)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["fen"], Board.initial().to_fen())
+
+    def test_evaluate_position_rejects_invalid_fen(self):
+        from analytics.metrics import evaluate_position
+
+        with self.assertRaises(ValueError) as ctx:
+            evaluate_position("not-a-fen")
+        self.assertEqual(str(ctx.exception), "invalid_fen")

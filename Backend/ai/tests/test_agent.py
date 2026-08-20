@@ -226,7 +226,11 @@ class KnobsTests(SimpleTestCase):
         with cf(SEARCH_DEPTH=3):
             self.assertEqual(knobs_for("adaptive").depth, 3)
 
-    def test_adaptive_explores_more_and_searches_deeper_against_a_winning_human(self):
+    def test_adaptive_and_hard_never_play_random_moves(self):
+        self.assertEqual(knobs_for("adaptive").epsilon, 0.0)
+        self.assertEqual(knobs_for("hard").epsilon, 0.0)
+
+    def test_adaptive_searches_deeper_against_a_winning_human_without_gambling(self):
         class Profile:
             total_games = 20
             win_rate = 0.8
@@ -236,7 +240,7 @@ class KnobsTests(SimpleTestCase):
         with cf(SEARCH_DEPTH=3):
             base = knobs_for("adaptive")
             tuned = knobs_for("adaptive", Profile())
-        self.assertGreater(tuned.epsilon, base.epsilon)
+        self.assertEqual(tuned.epsilon, 0.0)
         self.assertGreater(tuned.depth, base.depth)
 
     def test_adaptive_plays_safer_against_an_aggressive_human(self):
@@ -738,3 +742,39 @@ class RepeatMistakeTests(TestCase):
         agent = make_agent(seed=41, depth=1)  # use_memory=False
         scores = {m.notation(): repeat for m, _v, repeat in agent.score_moves(self.board)}
         self.assertFalse(scores["23-18"])
+
+
+class PlayGameRulesTests(SimpleTestCase):
+    def test_omitted_rules_stay_default(self):
+        _, plies = play_game(RandomAgent(seed=1), RandomAgent(seed=2), max_plies=4, explore=False)
+        self.assertTrue(plies)
+        self.assertTrue(plies[0].board.rules.flying_kings)
+        self.assertTrue(plies[0].after.rules.flying_kings)
+
+    def test_english_rules_thread_through(self):
+        from game.engine import ENGLISH_DRAUGHTS_RULES
+
+        _, plies = play_game(
+            RandomAgent(seed=1),
+            RandomAgent(seed=2),
+            max_plies=4,
+            explore=False,
+            rules=ENGLISH_DRAUGHTS_RULES,
+        )
+        self.assertTrue(plies)
+        self.assertFalse(plies[0].board.rules.flying_kings)
+        self.assertFalse(plies[0].after.rules.flying_kings)
+
+    def test_start_board_is_the_first_recorded_position(self):
+        from ai.opening_book import seed_opening
+
+        seeded, _ = seed_opening(Board.initial(), np.random.default_rng(3), max_plies=4)
+        _, plies = play_game(
+            RandomAgent(seed=1),
+            RandomAgent(seed=2),
+            max_plies=2,
+            explore=False,
+            start_board=seeded,
+        )
+        self.assertTrue(plies)
+        self.assertEqual(plies[0].board.to_fen(), seeded.to_fen())

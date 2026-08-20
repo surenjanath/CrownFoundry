@@ -100,7 +100,7 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 def knobs_for(difficulty: str, profile=None) -> Knobs:
     """Map a difficulty (and, for ``adaptive``, the opponent model) onto concrete settings."""
-    base_depth = max(1, int(conf.get("SEARCH_DEPTH", 4)))
+    base_depth = max(1, int(conf.get("SEARCH_DEPTH", 6)))
     difficulty = (difficulty or "adaptive").lower()
 
     if difficulty == "easy":
@@ -112,7 +112,7 @@ def knobs_for(difficulty: str, profile=None) -> Knobs:
         return Knobs(depth=base_depth, epsilon=0.0, risk=0.7, top_k=int(conf.get("TOP_K", 5)))
 
     depth = base_depth
-    epsilon = 0.06
+    epsilon = 0.0
     risk = 0.6
     if profile is not None:
         games = int(getattr(profile, "total_games", 0) or 0)
@@ -120,11 +120,8 @@ def knobs_for(difficulty: str, profile=None) -> Knobs:
         aggression = float(getattr(profile, "style_aggression", 0.0) or 0.0)
         king_rush = float(getattr(profile, "style_king_rush", 0.0) or 0.0)
         if games >= 3:
-            # Losing to this human means the current policy is in a rut: search harder and
-            # explore more, because repeating the same losing line is the one guaranteed failure.
-            deficit = _clamp(human_win_rate - 0.5, 0.0, 0.5)
+            # Losing to this human means search harder — never throw moves away at random.
             depth = base_depth + (1 if human_win_rate > 0.6 else 0)
-            epsilon = _clamp(0.03 + 0.30 * deficit, 0.02, 0.20)
             # An aggressive opponent trades pieces off; meet that with a lower risk appetite so
             # the agent stops offering material. A king-rusher is punished by holding the back
             # rank, which is what a low risk appetite does.
@@ -135,6 +132,10 @@ def knobs_for(difficulty: str, profile=None) -> Knobs:
 # -- policy persistence ----------------------------------------------------------------------
 
 _policy_cache: dict = {"version": None, "blob_id": None, "net": None}
+
+#: The published policy's guard score, kept per version so the keep-if-better check does
+#: not re-measure the same unchanged weights after every single game.
+_guard_cache: dict = {"version": None, "score": None}
 
 
 def new_network(seed: int | None = None) -> QNetwork:
@@ -512,6 +513,50 @@ class AdaptiveAgent:
                 losses.append(self.net.train_batch(x[idx], y[idx]))
         return float(np.mean(losses)) if losses else 0.0
 
+    def _gate_verdict(self, before_blob: bytes) -> dict | None:
+        """Whether the freshly trained weights are worse than the ones currently published.
+
+        The comparison is against the *published* policy, not against the weights this process
+        happened to be holding a moment ago. Those are not the same thing: online learning fits
+        the network on every AI move, so by the time a game ends the in-memory copy has already
+        drifted from what devices are downloading. Measuring against that drifted copy asks "is
+        this worse than it was a minute ago", and lets a policy walk downhill one small step at a
+        time. Measuring against what is live asks the question that matters - *is what I am about
+        to publish worse than what is already published* - and that one does not drift.
+
+        Returns ``None`` when the check itself could not run - a broken baseline is not a reason
+        to throw away a game's learning, so an error here fails open and the weights are kept.
+        """
+        from . import training
+        from .models import RLPolicyWeights
+
+        games = int(conf.get("POST_MATCH_EVAL_GAMES", 10))
+        depth = int(conf.get("POST_MATCH_EVAL_DEPTH", 3))
+        # A little slack, because a short evaluation is a noisy measurement. Only a real drop
+        # should cost a game its learning.
+        tolerance = float(conf.get("POST_MATCH_EVAL_TOLERANCE", 0.0))
+
+        try:
+            row = RLPolicyWeights.active()
+            published = bytes(row.model_blob) if row is not None and row.model_blob else before_blob
+            version = int(getattr(row, "version", 0) or 0)
+
+            # The published policy's score only changes when something new is published, so it is
+            # computed once per version rather than twice per game. That halves the cost of the
+            # gate, which is what makes a deeper, less noisy evaluation affordable here at all.
+            if _guard_cache.get("version") != version or _guard_cache.get("score") is None:
+                _guard_cache["version"] = version
+                _guard_cache["score"] = training.guard_score(
+                    QNetwork.from_blob(published), games=games, depth=depth
+                )
+            before = float(_guard_cache["score"])
+            after = training.guard_score(self.net, games=games, depth=depth)
+        except Exception:
+            logger.exception("post-match guard could not be evaluated; keeping the new weights")
+            return None
+        return {"before": round(before, 4), "after": round(after, 4),
+                "regressed": after < before - tolerance}
+
     # -- post-match learning -------------------------------------------------------------
 
     def learn_from_match(self, match_id) -> TrainingReport:
@@ -548,6 +593,11 @@ class AdaptiveAgent:
             return TrainingReport(self.policy_version, KIND_POST_MATCH, 1, 0, 0.0,
                                   detail={"error": "nothing_to_learn"})
 
+        # Snapshot the weights before fitting, so a step that makes the policy worse can be
+        # undone rather than published. Cheap: the whole network is about 110 KB.
+        gate_enabled = bool(conf.get("POST_MATCH_EVAL_GATE", True))
+        before_blob = self.net.to_blob() if gate_enabled else None
+
         self.replay.extend(transitions)
         epochs = max(1, int(conf.get("POST_MATCH_BATCHES", 24)) // max(1, len(transitions) // 8 + 1))
         loss = self.train_on(transitions, epochs=epochs)
@@ -557,6 +607,46 @@ class AdaptiveAgent:
         if len(replayed) >= MIN_ONLINE_BATCH:
             x, targets, _ = self._targets(replayed)
             loss = 0.5 * (loss + self.net.train_batch(x, targets))
+
+        # -- the keep-if-better gate -----------------------------------------------------
+        #
+        # One badly played game is enough to drag the policy off a cliff, and every finished game
+        # reaches this path - a beginner's game, a game someone threw, a game refereed for a
+        # client that chose both sides' moves. Without this check the worst game anyone plays
+        # becomes everybody's opponent, because the new weights are published unconditionally.
+        #
+        # The self-play trainer has always had this discipline (``should_save``); the per-match
+        # path did not, which is the more dangerous of the two because it runs unattended.
+        if gate_enabled and before_blob is not None:
+            verdict = self._gate_verdict(before_blob)
+            if verdict is not None and verdict["regressed"]:
+                # Put the weights back. Leaving the trained ones in memory would keep serving the
+                # regression to every request until the process restarts, which is exactly what
+                # refusing to persist them is meant to prevent.
+                self.net = QNetwork.from_blob(before_blob)
+                _policy_cache["net"] = self.net
+                _policy_cache["version"] = self.policy_version
+                logger.info(
+                    "post-match training rejected for match %s: guard score %.3f -> %.3f",
+                    getattr(match, "match_id", match_id), verdict["before"], verdict["after"],
+                )
+                TrainingRun.objects.create(
+                    policy_version=self.policy_version,
+                    kind=KIND_POST_MATCH,
+                    games=1,
+                    transitions=len(transitions),
+                    loss=loss,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    detail={"winner": winner, "ai_side": ai_side, "rejected": True,
+                            "guard_before": verdict["before"], "guard_after": verdict["after"],
+                            "finished_at": timezone.now().isoformat()},
+                )
+                return TrainingReport(
+                    self.policy_version, KIND_POST_MATCH, 1, len(transitions), loss,
+                    int((time.monotonic() - started) * 1000),
+                    {"winner": winner, "ai_side": ai_side, "rejected": True,
+                     "guard_before": verdict["before"], "guard_after": verdict["after"]},
+                )
 
         rewarded = _reward_updates(memories, transitions)
         repeats = sum(1 for m in memories if m.was_repeat_mistake)
@@ -844,9 +934,12 @@ def _next_elo(winner: str | None, ai_side: str, opponent_elo: float, k: int = 24
 
 
 def play_game(black_agent, white_agent, *, explore: bool = True, max_plies: int = 240,
-              record: bool = True) -> tuple[str | None, list[Ply]]:
+              record: bool = True, rules=None, start_board=None) -> tuple[str | None, list[Ply]]:
     """Play one game out. Returns ``(winner, plies)``; ``winner`` is None if it hit ``max_plies``."""
-    board = Board.initial()
+    if start_board is not None:
+        board = start_board
+    else:
+        board = Board.initial() if rules is None else Board.initial(rules=rules)
     plies: list[Ply] = []
     for _ in range(max_plies):
         if board.is_terminal():

@@ -4,5 +4,11 @@ django-cors-headers>=4.4
 numpy>=1.26
 requests>=2.31
 
-# Optional: only needed when DATABASE_URL points at PostgreSQL.
-# psycopg[binary]>=3.2
+# Needed when DATABASE_URL points at PostgreSQL, which is the recommended production database.
+# SQLite is fine for a laptop and wrong for a deployment: a file on an ephemeral container loses
+# the trained policy on every restart.
+psycopg[binary]>=3.2
+
+# Production serving. Neither is needed to run `manage.py runserver` locally.
+gunicorn>=23.0
+whitenoise>=6.7

@@ -14,8 +14,12 @@ _DEFAULTS = {
     "OLLAMA_ENABLED": True,
     "ONLINE_LEARNING": True,
     "POST_MATCH_LEARNING": True,
+    # Whether offline matches synced up from a device train the shared policy. Off by
+    # default: a sync payload is a client-authored move list, so on a public endpoint it is
+    # an unauthenticated write to the opponent every other player faces. See ai.views.
+    "TRAIN_FROM_SYNC": False,
     "TASKS_EAGER": False,
-    "SEARCH_DEPTH": 4,
+    "SEARCH_DEPTH": 6,
     # RL knobs. Overridable from settings for experiments; sane on a laptop as they are.
     "GAMMA": 0.95,
     "LEARNING_RATE": 1e-3,
@@ -25,9 +29,19 @@ _DEFAULTS = {
     "ONLINE_BATCH": 16,
     "POST_MATCH_BATCHES": 24,
     "POST_MATCH_BATCH_SIZE": 64,
+    # Keep-if-better for the per-match path. One badly played game is enough to drag the
+    # policy off a cliff, and every finished game reaches it, so the new weights are
+    # measured against the ones they replace before being published.
+    "POST_MATCH_EVAL_GATE": True,
+    "POST_MATCH_EVAL_GAMES": 10,
+    "POST_MATCH_EVAL_DEPTH": 3,
+    "POST_MATCH_EVAL_TOLERANCE": 0.0,
     "SEARCH_NODE_BUDGET": 4000,
     "TOP_K": 5,
     "AI_SIDE": "white",
+    "IDLE_SELFPLAY": True,
+    "IDLE_INTERVAL_S": 180,
+    "IDLE_GAMES": 8,
 }
 
 

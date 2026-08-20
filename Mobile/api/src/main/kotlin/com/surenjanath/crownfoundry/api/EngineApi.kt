@@ -16,8 +16,15 @@ interface EngineApi {
     /** What the server's current policy is. Cheap enough to poll whenever the app comes forward. */
     suspend fun engineManifest(): Outcome<EngineManifestDto>
 
-    /** The policy itself, as CFE1 bytes. Verified against [EngineManifestDto.checksum] on arrival. */
-    suspend fun downloadEngine(): Outcome<ByteArray>
+    /**
+     * The policy itself, as CFE1 bytes, verified against [EngineManifestDto.checksum] on arrival.
+     *
+     * [version] pins the download to the policy the manifest named. Without it the server serves
+     * whatever is current, and on a server that trains continuously that can already be a newer
+     * policy than the manifest described - so the bytes would be checked against the wrong
+     * checksum and a sound engine discarded as corrupt.
+     */
+    suspend fun downloadEngine(version: Int? = null): Outcome<ByteArray>
 
     /**
      * Hand back games the device refereed itself. The server replays every move through its own

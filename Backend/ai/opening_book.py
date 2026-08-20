@@ -66,7 +66,7 @@ class OpeningBook:
     def _normalize(self, move_str: str) -> str:
         return move_str.replace("x", "-").replace("X", "-").replace(":", "-").strip()
 
-    def lookup_move(self, move_history: list[str], board: Board) -> str | None:
+    def lookup_move(self, move_history: list[str], board: Board, rng=None) -> str | None:
         """Find theoretical reply for the played move history."""
         curr = self.trie
         for move in move_history:
@@ -79,14 +79,48 @@ class OpeningBook:
             return None
 
         candidates = list(curr.keys())
-        # Filter candidate moves against board legal moves
         legal_notations = {self._normalize(m.notation()): m.notation() for m in board.legal_moves()}
         valid_candidates = [c for c in candidates if c in legal_notations]
 
         if valid_candidates:
-            chosen = random.choice(valid_candidates)
+            picker = rng if rng is not None else random
+            chosen = picker.choice(valid_candidates)
             return legal_notations[chosen]
         return None
 
 
 BOOK = OpeningBook()
+
+
+def book_move(board: Board, history: list[str], rng=None):
+    """Legal book reply for ``history``, or ``None`` when the line has left the book."""
+    from game.engine import IllegalMove
+
+    notation = BOOK.lookup_move(list(history), board, rng=rng)
+    if not notation:
+        return None
+    try:
+        return board.parse_move(notation)
+    except (IllegalMove, ValueError):
+        return None
+
+
+def seed_opening(board: Board, rng, max_plies: int = 8) -> tuple[Board, list[str]]:
+    """Play up to ``max_plies`` book moves from ``board``. Stops on a miss or an illegal line."""
+    from game.engine import IllegalMove
+
+    history: list[str] = []
+    current = board
+    for _ in range(max(0, int(max_plies))):
+        if current.is_terminal():
+            break
+        notation = BOOK.lookup_move(history, current, rng=rng)
+        if not notation:
+            break
+        try:
+            move = current.parse_move(notation)
+        except (IllegalMove, ValueError):
+            break
+        current = current.apply(move)
+        history.append(move.notation())
+    return current, history

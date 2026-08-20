@@ -179,7 +179,7 @@ class AgentTest {
     fun `difficulties map onto the settings the backend uses`() {
         assertEquals(Knobs(1, 0.35f, 0.2f, 3, DEFAULT_NODE_BUDGET), knobsFor("easy"))
         assertEquals(Knobs(2, 0.10f, 0.5f, 4, DEFAULT_NODE_BUDGET), knobsFor("normal"))
-        assertEquals(Knobs(4, 0f, 0.7f, 5, DEFAULT_NODE_BUDGET), knobsFor("hard"))
+        assertEquals(Knobs(6, 0f, 0.7f, 5, DEFAULT_NODE_BUDGET), knobsFor("hard"))
         // The device searches the tree the server searches - same depth, same budget - so an
         // offline opponent is not a weaker one. `SearchBudgetTest` is why that is affordable.
         assertEquals(4000, DEFAULT_NODE_BUDGET)
@@ -199,7 +199,8 @@ class AgentTest {
         val losing = knobsFor("adaptive", OpponentProfile(totalGames = 10, winRate = 0.8f))
 
         assertTrue("depth ${losing.depth} should exceed ${base.depth}", losing.depth > base.depth)
-        assertTrue("epsilon ${losing.epsilon} should exceed ${base.epsilon}", losing.epsilon > base.epsilon)
+        assertEquals(0f, losing.epsilon, 0f)
+        assertEquals(0f, base.epsilon, 0f)
     }
 
     @Test

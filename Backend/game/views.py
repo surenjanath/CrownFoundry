@@ -60,8 +60,14 @@ class ApiError(Exception):
         return Response(payload, status=self.status)
 
 
-def endpoint(*methods):
-    """``api_view`` plus the house error contract."""
+def endpoint(*methods, scope: str | None = None):
+    """``api_view`` plus the house error contract, and optionally a throttle scope.
+
+    ``scope`` names a bucket in ``REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]`` for the endpoints
+    that cost real money to serve - a search, a row insert, a full-table recompute. It has to be
+    set on the view *class* rather than the function, because ``api_view`` builds that class
+    itself and copies only the handful of attributes it knows about.
+    """
 
     def decorate(view):
         def wrapper(request, *args, **kwargs):
@@ -71,10 +77,20 @@ def endpoint(*methods):
                 return exc.response()
             except ParseError as exc:
                 return ApiError("invalid_json", str(exc.detail)).response()
+            except Exception:
+                logger.exception("unhandled error in %s", view.__name__)
+                return ApiError(
+                    "computation_error",
+                    "The server could not complete that request.",
+                    status=500,
+                ).response()
 
         wrapper.__name__ = view.__name__
         wrapper.__doc__ = view.__doc__
-        return api_view(list(methods))(wrapper)
+        wrapped = api_view(list(methods))(wrapper)
+        if scope:
+            wrapped.cls.throttle_scope = scope
+        return wrapped
 
     return decorate
 
@@ -248,7 +264,23 @@ def match_envelope(match: Match, board: Board) -> dict:
 
 @endpoint("GET")
 def health(request):
-    """Liveness. Answers even when the brain is broken."""
+    """Liveness. Answers even when the brain is broken. Fails only if the database is down."""
+    try:
+        connection.ensure_connection()
+    except Exception:
+        logger.exception("health database check failed")
+        raise ApiError("database_unavailable", "The database is not reachable.", status=503)
+
+    policy_version = 0
+    try:
+        from ai.models import RLPolicyWeights
+
+        row = RLPolicyWeights.active()
+        policy_version = int(getattr(row, "version", 0) or 0)
+    except Exception:
+        logger.warning("policy table unavailable", exc_info=True)
+        policy_version = 0
+
     try:
         ollama = ai_service.ollama_status()
         if not isinstance(ollama, dict):
@@ -264,12 +296,12 @@ def health(request):
                 "available": bool(ollama.get("available", False)),
                 "model": ollama.get("model", ""),
             },
-            "policy_version": ai_status().get("policy_version"),
+            "policy_version": policy_version,
         }
     )
 
 
-@endpoint("POST")
+@endpoint("POST", scope="match_start")
 @transaction.atomic
 def match_start(request):
     data = body(request)
@@ -416,7 +448,7 @@ def illegal(board: Board, detail: str) -> ApiError:
     return ApiError("illegal_move", detail, valid=False, legal_moves=legal_moves_payload(board))
 
 
-@endpoint("POST")
+@endpoint("POST", scope="ai_turn")
 @transaction.atomic
 def ai_generate_turn(request):
     data = body(request)
@@ -521,6 +553,34 @@ def match_resign(request, match_id):
     return Response({"ok": True, "game_over": True, "winner": match.winner})
 
 
+@endpoint("DELETE", "POST", scope="match_start")
+@transaction.atomic
+def player_delete(request, player_id):
+    """Erase everything held for one player. The app has no accounts, so this is the delete path.
+
+    Google Play requires an app that collects data to offer a way to have it deleted, and this is
+    the honest version of that: the profile row, every match, every stored position and every
+    recorded AI memory attached to it, gone in one call. The cascade does the work - the schema
+    already hangs all of it off :class:`~game.models.PlayerProfile`.
+
+    Deliberately idempotent. A device that deletes its data, loses the response and retries must
+    get the same answer as the first attempt rather than a 404 it cannot act on.
+    """
+    try:
+        parsed = uuid.UUID(str(player_id))
+    except (ValueError, AttributeError, TypeError):
+        raise ApiError("invalid_player_id", f"{player_id!r} is not a uuid.") from None
+
+    profile = PlayerProfile.objects.filter(player_id=parsed).first()
+    if profile is None:
+        return Response({"ok": True, "deleted": False, "matches_deleted": 0})
+
+    matches = Match.objects.filter(player=profile).count()
+    profile.delete()
+    logger.info("erased all data for player %s (%s matches)", parsed, matches)
+    return Response({"ok": True, "deleted": True, "matches_deleted": matches})
+
+
 __all__ = [
     "ai_generate_turn",
     "health",
@@ -529,4 +589,5 @@ __all__ = [
     "match_move",
     "match_resign",
     "match_start",
+    "player_delete",
 ]

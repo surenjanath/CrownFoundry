@@ -8,7 +8,7 @@
 ![Django](https://img.shields.io/badge/Django-6.0-092E20?logo=django&logoColor=white)
 ![Ktor](https://img.shields.io/badge/Ktor-2.3-F88909?logo=ktor&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-LLM_Bridge-000000?logo=ollama&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-689_Passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-868_Passing-brightgreen)
 
 <br/>
 

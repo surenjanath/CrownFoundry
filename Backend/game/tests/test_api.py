@@ -144,7 +144,16 @@ class HealthTests(ApiTestCase):
         self.assertIs(payload["ok"], True)
         self.assertEqual(payload["version"], "1.0.0")
         self.assertEqual(payload["ollama"], {"available": True, "model": "qwen3.5:9b"})
-        self.assertEqual(payload["policy_version"], 12)
+        self.assertEqual(payload["policy_version"], 0)
+
+    def test_health_reads_active_policy_not_ai_status(self):
+        from ai.models import RLPolicyWeights
+
+        RLPolicyWeights.objects.create(version=7, is_active=True)
+        response = self.client.get("/api/health/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["policy_version"], 7)
+        self.ai["ai_status"].assert_not_called()
 
     def test_health_survives_a_broken_brain(self):
         self.ai["ollama_status"].side_effect = RuntimeError("no ollama")
@@ -154,14 +163,31 @@ class HealthTests(ApiTestCase):
         payload = response.json()
         self.assertIs(payload["ok"], True)
         self.assertIs(payload["ollama"]["available"], False)
-        self.assertIsNone(payload["policy_version"])
+        self.assertEqual(payload["policy_version"], 0)
 
     def test_health_survives_a_nonsense_return_value(self):
         self.ai["ollama_status"].return_value = "yes"
-        self.ai["ai_status"].return_value = None
         response = self.client.get("/api/health/")
         self.assertEqual(response.status_code, 200)
         self.assertIs(response.json()["ollama"]["available"], False)
+
+    def test_health_database_unavailable(self):
+        from unittest.mock import patch
+
+        with patch("game.views.connection") as conn:
+            conn.ensure_connection.side_effect = RuntimeError("db down")
+            response = self.client.get("/api/health/")
+        self.assert_error(response, "database_unavailable", 503)
+
+    def test_unhandled_error_does_not_echo_exception_text(self):
+        from unittest.mock import patch
+
+        with patch("game.models.Match.objects") as manager:
+            manager.all.side_effect = RuntimeError("SECRET_LEAK_XYZ")
+            response = self.client.get("/api/matches/")
+        payload = self.assert_error(response, "computation_error", 500)
+        self.assertEqual(payload["detail"], "The server could not complete that request.")
+        self.assertNotIn("SECRET_LEAK_XYZ", payload["detail"])
 
 
 class StartMatchTests(ApiTestCase):
