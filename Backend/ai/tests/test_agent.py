@@ -226,7 +226,11 @@ class KnobsTests(SimpleTestCase):
         with cf(SEARCH_DEPTH=3):
             self.assertEqual(knobs_for("adaptive").depth, 3)
 
-    def test_adaptive_explores_more_and_searches_deeper_against_a_winning_human(self):
+    def test_adaptive_and_hard_never_play_random_moves(self):
+        self.assertEqual(knobs_for("adaptive").epsilon, 0.0)
+        self.assertEqual(knobs_for("hard").epsilon, 0.0)
+
+    def test_adaptive_searches_deeper_against_a_winning_human_without_gambling(self):
         class Profile:
             total_games = 20
             win_rate = 0.8
@@ -236,7 +240,7 @@ class KnobsTests(SimpleTestCase):
         with cf(SEARCH_DEPTH=3):
             base = knobs_for("adaptive")
             tuned = knobs_for("adaptive", Profile())
-        self.assertGreater(tuned.epsilon, base.epsilon)
+        self.assertEqual(tuned.epsilon, 0.0)
         self.assertGreater(tuned.depth, base.depth)
 
     def test_adaptive_plays_safer_against_an_aggressive_human(self):

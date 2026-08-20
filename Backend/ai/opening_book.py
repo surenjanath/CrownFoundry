@@ -92,6 +92,19 @@ class OpeningBook:
 BOOK = OpeningBook()
 
 
+def book_move(board: Board, history: list[str], rng=None):
+    """Legal book reply for ``history``, or ``None`` when the line has left the book."""
+    from game.engine import IllegalMove
+
+    notation = BOOK.lookup_move(list(history), board, rng=rng)
+    if not notation:
+        return None
+    try:
+        return board.parse_move(notation)
+    except (IllegalMove, ValueError):
+        return None
+
+
 def seed_opening(board: Board, rng, max_plies: int = 8) -> tuple[Board, list[str]]:
     """Play up to ``max_plies`` book moves from ``board``. Stops on a miss or an illegal line."""
     from game.engine import IllegalMove

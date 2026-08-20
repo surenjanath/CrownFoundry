@@ -11,8 +11,22 @@ from ai.training import (
     start_idle_loop,
     get_training_tracker,
     set_idle_enabled,
+    clamp_games,
+    MAX_MANUAL_GAMES,
 )
 from ai.tests import cf
+
+
+class ClampGamesTests(SimpleTestCase):
+    def test_twenty_five_thousand_is_allowed(self):
+        self.assertEqual(MAX_MANUAL_GAMES, 25000)
+        self.assertEqual(clamp_games(25000), 25000)
+
+    def test_values_above_the_cap_are_clamped(self):
+        self.assertEqual(clamp_games(30000), 25000)
+
+    def test_values_below_five_are_raised(self):
+        self.assertEqual(clamp_games(1), 5)
 
 
 class OpponentKindTests(SimpleTestCase):

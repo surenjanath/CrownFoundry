@@ -1,7 +1,7 @@
 """The AI's voice.
 
-The RL engine decides what is *good*; Ollama decides how to say it, and gets the final say over
-which of the engine's shortlisted moves to play. Everything here is best-effort: Ollama is a nice
+The RL engine (or the opening book) decides what is *good*; Ollama decides how to say it.
+It never changes the chosen move. Everything here is best-effort: Ollama is a nice
 local extra, never a dependency. Any failure — refused connection, timeout, a model that was never
 pulled, JSON that is not JSON, a move that is not on the shortlist — falls back to a heuristic
 narrator that reads the move's own features and says something true about them.

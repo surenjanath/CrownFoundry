@@ -49,7 +49,17 @@ _artifact_cache: dict = {"version": None, "blob": None, "manifest": None}
 
 
 def current_artifact() -> tuple[bytes, dict]:
-    """``(blob, manifest)`` for the active policy, building and caching it on first ask."""
+    """``(blob, manifest)`` for the active policy, building and caching it on first ask.
+
+    Built from the *persisted* weights, never from the live in-memory network. Those two are not
+    the same thing: online learning keeps training the loaded network between the writes that
+    create a new version, so a worker that has served traffic holds weights slightly ahead of the
+    row it is named after. Publishing those would make "version N" mean different bytes in every
+    worker and at every moment - which breaks the ETag, breaks any cache in front of this, and
+    breaks the device's checksum check against a manifest it fetched a second earlier.
+
+    A version names one byte sequence. That is the property the whole distribution path rests on.
+    """
     from .agent import load_network
     from .models import DEFAULT_ELO, RLPolicyWeights
 
@@ -64,21 +74,67 @@ def current_artifact() -> tuple[bytes, dict]:
     if cached is not None and _artifact_cache.get("version") == version:
         return cached, _artifact_cache["manifest"]
 
-    net, loaded_version = load_network()
-    blob = export.build_artifact(
-        net,
-        version=int(loaded_version or version),
-        elo=int(getattr(row, "elo_rating", DEFAULT_ELO) or DEFAULT_ELO),
-        games_trained=int(getattr(row, "games_trained", 0) or 0),
-        last_loss=getattr(row, "last_loss", None),
-        notes=str(getattr(row, "notes", "") or ""),
-        created_at=(
-            row.last_updated.isoformat() if row is not None and row.last_updated else ""
-        ),
-    )
-    payload = export.manifest(blob)
+    stored = artifact_for_version(version) if row is not None else None
+    if stored is not None:
+        blob, payload = stored
+    else:
+        # No stored weights yet - an unmigrated or freshly seeded database. A device is better off
+        # with an untrained version 0 it can play against than with no engine and no offline mode.
+        net, loaded_version = load_network()
+        blob = export.build_artifact(
+            net,
+            version=int(loaded_version or version),
+            elo=int(getattr(row, "elo_rating", DEFAULT_ELO) or DEFAULT_ELO),
+            games_trained=int(getattr(row, "games_trained", 0) or 0),
+            last_loss=getattr(row, "last_loss", None),
+            notes=str(getattr(row, "notes", "") or ""),
+            created_at=(
+                row.last_updated.isoformat() if row is not None and row.last_updated else ""
+            ),
+        )
+        payload = export.manifest(blob)
+
     _artifact_cache.update({"version": version, "blob": blob, "manifest": payload})
     return blob, payload
+
+
+def artifact_for_version(version: int) -> tuple[bytes, dict] | None:
+    """``(blob, manifest)`` for one specific policy version, or ``None`` if it is not stored.
+
+    This exists because the manifest and the download are two requests, and on a server that is
+    training the policy underneath them the version can move in between. The device then checks
+    bytes for vN+1 against a checksum for vN, decides the download was corrupted, and throws away
+    a perfectly good engine - which on a continuously-training server is not an edge case but the
+    normal outcome. Letting the client name the version it planned against makes the pair
+    consistent by construction.
+    """
+    from .models import DEFAULT_ELO, RLPolicyWeights
+    from .policy import QNetwork
+
+    try:
+        row = RLPolicyWeights.objects.filter(version=int(version)).first()
+    except Exception:
+        logger.debug("policy table unavailable", exc_info=True)
+        return None
+    if row is None or not row.model_blob:
+        return None
+
+    try:
+        net = QNetwork.from_blob(bytes(row.model_blob))
+    except Exception:
+        logger.exception("policy v%s failed to deserialise", row.version)
+        return None
+
+    blob = export.build_artifact(
+        net,
+        version=int(row.version),
+        elo=int(row.elo_rating or DEFAULT_ELO),
+        games_trained=int(row.games_trained or 0),
+        last_loss=row.last_loss,
+        notes=str(row.notes or ""),
+        created_at=row.last_updated.isoformat() if row.last_updated else "",
+    )
+    return blob, export.manifest(blob)
 
 
 def clear_artifact_cache() -> None:
@@ -102,12 +158,35 @@ def engine_manifest(request):
 
 @endpoint("GET")
 def engine_download(request):
-    """The artifact itself. ``ETag`` is the checksum, so a re-check costs one 304."""
+    """The artifact itself. ``ETag`` is the checksum, so a re-check costs one 304.
+
+    ``?version=N`` asks for one specific policy rather than whatever is current. A client that
+    has just read the manifest should send the version it named, so the bytes it verifies and the
+    checksum it verifies them against describe the same policy even if training publishes a new
+    one between the two requests. An unknown version falls back to current rather than 404ing -
+    the device wants an engine more than it wants that exact engine, and the headers say which
+    one it actually got.
+    """
+    requested = request.GET.get("version")
+    if requested:
+        try:
+            wanted = int(requested)
+        except (TypeError, ValueError):
+            raise ApiError("invalid_field", "version must be an integer.") from None
+        pinned = artifact_for_version(wanted)
+        if pinned is not None:
+            return _artifact_response(request, *pinned)
+
     try:
         blob, payload = current_artifact()
     except Exception as exc:
         logger.exception("could not build the engine artifact")
         raise ApiError("engine_unavailable", f"No engine to publish: {exc}", status=503) from None
+    return _artifact_response(request, blob, payload)
+
+
+def _artifact_response(request, blob: bytes, payload: dict):
+    """The bytes plus the headers that describe them. Always self-consistent."""
 
     etag = f'"{payload["checksum"]}"'
     if request.headers.get("If-None-Match") == etag:
@@ -130,7 +209,7 @@ def engine_download(request):
 # --- offline sync -----------------------------------------------------------------------------
 
 
-@endpoint("POST")
+@endpoint("POST", scope="engine_sync")
 def engine_sync(request):
     """Import games the device refereed itself, then tell it where the server now stands.
 
@@ -202,13 +281,28 @@ def engine_sync(request):
 
 
 def _finish_hook(match: Match) -> None:
-    """Run the same post-match path an online game takes, Elo included."""
+    """Run the post-match path an online game takes, Elo included.
+
+    Whether it also *trains the shared policy* is a deployment decision, and the default is no.
+
+    The asymmetry is not arbitrary. An online match is refereed here move by move, and the moves
+    attributed to the AI are moves this server actually chose. A synced offline match is a move
+    list the client wrote: replaying it proves every move was legal, which is worth a great deal,
+    but it cannot show that the moves credited to the AI came from the AI rather than from
+    whoever wanted the shared opponent to learn that losing is good. A public sync endpoint with
+    no account behind it makes that a one-request attack on every other player's opponent.
+
+    So the games are imported in full - history, analytics, PDN, the player's own opponent model -
+    and only the shared brain is withheld. ``CROWNFOUNDRY_TRAIN_FROM_SYNC=1`` turns it on for a
+    deployment whose sync endpoint is not open to strangers.
+    """
+    from ai import conf
     from ai import service as ai_service
 
     profile = match.player
     profile.record_result(match.winner, _ai_elo())
     profile.save()
-    ai_service.on_match_finished(match)
+    ai_service.on_match_finished(match, train=bool(conf.get("TRAIN_FROM_SYNC", False)))
 
 
 def _ai_elo() -> int:

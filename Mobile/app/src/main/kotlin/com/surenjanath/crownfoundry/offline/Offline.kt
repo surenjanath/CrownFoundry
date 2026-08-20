@@ -3,6 +3,9 @@ package com.surenjanath.crownfoundry.offline
 import android.content.Context
 import com.surenjanath.crownfoundry.api.CheckersApi
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
+import com.surenjanath.crownfoundry.utils.backendUrlKey
+import com.surenjanath.crownfoundry.utils.effectiveBackendUrl
+import com.surenjanath.crownfoundry.utils.preferences as appPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -31,6 +34,21 @@ object Offline {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    private var appContext: Context? = null
+
+    /**
+     * Whether there is a referee to reach: an address from the build, or one the player typed.
+     *
+     * Read on every call rather than captured at start-up, so naming a server in Settings takes
+     * effect on the next request instead of on the next launch.
+     */
+    val backendAvailable: Boolean
+        get() {
+            val context = appContext ?: return true
+            val stored = context.appPreferences.getString(backendUrlKey, null)
+            return effectiveBackendUrl(stored) != null
+        }
+
     /** The API every screen should talk to. Routes online/offline; never null. */
     val api: CheckersApi get() = hybrid ?: CrownFoundryClient
 
@@ -57,6 +75,8 @@ object Offline {
     fun initialise(context: Context) {
         if (hybrid != null) return
 
+        appContext = context.applicationContext
+
         val enginePreferences = EnginePreferences(context)
         val matchStore = LocalMatchStore(context)
         val offline = OfflineCheckersApi(
@@ -72,7 +92,8 @@ object Offline {
         hybrid = HybridCheckersApi(
             remote = CrownFoundryClient,
             local = offline,
-            preferences = enginePreferences
+            preferences = enginePreferences,
+            backendAvailable = { backendAvailable }
         )
         sync = EngineSync(
             api = CrownFoundryClient,
@@ -93,6 +114,8 @@ object Offline {
      * wants a definite answer uses the button in Settings, which awaits [synchronise].
      */
     fun synchroniseInBackground(playerId: String?, force: Boolean = false) {
+        // Nothing to push to and nothing to pull from; the bundled engine is the whole product.
+        if (!backendAvailable) return
         val engineSync = sync ?: return
         scope.launch {
             runCatching { engineSync.synchronise(playerId, force) }
@@ -102,10 +125,12 @@ object Offline {
     suspend fun synchronise(
         playerId: String?,
         force: Boolean = false
-    ): Pair<EngineSync.UploadResult, EngineSync.Result>? = sync?.synchronise(playerId, force)
+    ): Pair<EngineSync.UploadResult, EngineSync.Result>? =
+        if (!backendAvailable) null else sync?.synchronise(playerId, force)
 
-    suspend fun refresh(force: Boolean = false): EngineSync.Result? = sync?.refresh(force)
+    suspend fun refresh(force: Boolean = false): EngineSync.Result? =
+        if (!backendAvailable) null else sync?.refresh(force)
 
     suspend fun uploadOutbox(playerId: String?): EngineSync.UploadResult? =
-        sync?.uploadOutbox(playerId)
+        if (!backendAvailable) null else sync?.uploadOutbox(playerId)
 }

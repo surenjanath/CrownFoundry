@@ -169,8 +169,9 @@ object CrownFoundryClient : CheckersApi, EngineApi {
     override suspend fun engineManifest(): Outcome<EngineManifestDto> =
         call(ENGINE_MANIFEST_PATH, EngineManifestDto.serializer())
 
-    override suspend fun downloadEngine(): Outcome<ByteArray> {
-        val url = baseUrl + ENGINE_DOWNLOAD_PATH
+    override suspend fun downloadEngine(version: Int?): Outcome<ByteArray> {
+        val url = baseUrl + ENGINE_DOWNLOAD_PATH +
+                (version?.let { "?version=$it" } ?: "")
         return try {
             val response = httpClient.request(url) {
                 method = HttpMethod.Get

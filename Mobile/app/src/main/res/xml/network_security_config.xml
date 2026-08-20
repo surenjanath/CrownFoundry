@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    The referee normally runs on the developer's own machine over plain HTTP: 10.0.2.2 is the
-    host as the emulator sees it, and a private-range address is a phone on the same Wi-Fi.
-    Everything else still requires TLS.
+    The shipping policy: the backend is reached over TLS, full stop.
+
+    A published build talks to a hosted referee across the open internet, and the traffic is a
+    player's match history and device identifier. Plain HTTP for that is readable and rewritable
+    by anything between the phone and the server, so cleartext is off by default here.
+
+    The loopback exceptions are kept because they cost nothing: 10.0.2.2 is the emulator's route
+    to its host and 127.0.0.1 is the device itself, neither of which is reachable by an attacker
+    on the network. They let a release build be smoke-tested against a local server.
+
+    Development against a LAN address over HTTP is what the debug build is for
+    (src/debug/res/xml/network_security_config.xml), which permits cleartext everywhere.
 -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
@@ -11,5 +20,5 @@
         <domain includeSubdomains="false">127.0.0.1</domain>
     </domain-config>
 
-    <base-config cleartextTrafficPermitted="true" />
+    <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

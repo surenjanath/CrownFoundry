@@ -80,7 +80,7 @@ private fun clamp(value: Float, low: Float, high: Float) = max(low, min(high, va
 fun knobsFor(
     difficulty: String?,
     profile: OpponentProfile? = null,
-    baseDepth: Int = 4,
+    baseDepth: Int = 6,
     nodeBudget: Int = DEFAULT_NODE_BUDGET
 ): Knobs {
     val base = max(1, baseDepth)
@@ -92,14 +92,11 @@ fun knobsFor(
 
         else -> {
             var depth = base
-            var epsilon = 0.06f
+            val epsilon = 0f
             var risk = 0.6f
             if (profile != null && profile.totalGames >= 3) {
-                // Losing to this human means the policy is in a rut: search harder and explore
-                // more, because repeating the same losing line is the one guaranteed failure.
-                val deficit = clamp(profile.winRate - 0.5f, 0f, 0.5f)
+                // Losing to this human means search harder — never throw moves away at random.
                 depth = base + if (profile.winRate > 0.6f) 1 else 0
-                epsilon = clamp(0.03f + 0.30f * deficit, 0.02f, 0.20f)
                 // An aggressive opponent trades pieces off; meet that with a lower risk appetite
                 // so the agent stops offering material. A king-rusher is punished by holding the
                 // back rank, which is what a low risk appetite does.
@@ -271,7 +268,20 @@ class LocalAgent(
     }
 
     /** Choose a move. Returns it with the shortlist the UI shows under "considered". */
-    fun select(board: Board, explore: Boolean = false): Pair<Move, List<ScoredMove>> {
+    fun select(
+        board: Board,
+        explore: Boolean = false,
+        history: List<String> = emptyList()
+    ): Pair<Move, List<ScoredMove>> {
+        val bookNotation = if (history.isNotEmpty()) OpeningBook.lookup(history, board) else null
+        if (bookNotation != null) {
+            try {
+                val bookMove = board.parseMove(bookNotation)
+                return bookMove to listOf(ScoredMove(bookMove.notation(), 10f))
+            } catch (_: IllegalMove) {
+                // Fall through to search when the book string is not parseable here.
+            }
+        }
         val scored = scoreMoves(board)
         if (scored.isEmpty()) throw IllegalMove("no legal moves in this position")
 

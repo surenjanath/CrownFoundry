@@ -3,8 +3,21 @@ from __future__ import annotations
 import numpy as np
 from django.test import SimpleTestCase
 
-from ai.opening_book import seed_opening
+from ai.opening_book import BOOK, book_move, seed_opening
 from game.engine import Board, IllegalMove
+
+
+class BookMoveTests(SimpleTestCase):
+    def test_after_eleven_fifteen_white_plays_a_book_reply(self):
+        board = Board.initial().apply(Board.initial().parse_move("11-15"))
+        move = book_move(board, ["11-15"], rng=np.random.default_rng(0))
+        self.assertIsNotNone(move)
+        self.assertIn(move.notation(), {m.notation() for m in board.legal_moves()})
+        self.assertIn(BOOK._normalize(move.notation()), BOOK.trie[BOOK._normalize("11-15")])
+
+    def test_unknown_history_returns_none(self):
+        board = Board.initial()
+        self.assertIsNone(book_move(board, ["99-98"], rng=np.random.default_rng(0)))
 
 
 class SeedOpeningTests(SimpleTestCase):

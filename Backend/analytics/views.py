@@ -3,6 +3,7 @@ import json
 import logging
 
 from django.conf import settings
+from django.http import HttpResponseForbidden
 from django.shortcuts import render
 from rest_framework.response import Response
 
@@ -17,23 +18,42 @@ logger = logging.getLogger("crownfoundry.analytics")
 SIMULATE_AGENTS = frozenset({"policy", "greedy", "random"})
 
 
-def _require_dashboard(request) -> None:
+def _dashboard_allowed(request) -> bool:
+    """Whether this request carries the dashboard token.
+
+    A browser cannot set a header by typing a URL, so the HTML page also accepts ``?token=``.
+    The JSON endpoints keep to the header, which is the form that does not end up in browser
+    history, proxy logs and ``Referer``.
+    """
     token = str((getattr(settings, "CROWNFOUNDRY", {}) or {}).get("DASHBOARD_TOKEN") or "").strip()
     if not token:
-        if settings.DEBUG:
-            return
-        raise ApiError("forbidden", "Dashboard token required.", status=403)
-    provided = request.headers.get("X-Dashboard-Token") or ""
+        # No token configured is only ever a development convenience. In production an unset
+        # token means locked, not open - the failure mode of the reverse is a public admin panel.
+        return bool(settings.DEBUG)
+    provided = request.headers.get("X-Dashboard-Token") or request.GET.get("token") or ""
     try:
-        matched = hmac.compare_digest(provided.encode("utf-8"), token.encode("utf-8"))
+        return hmac.compare_digest(provided.encode("utf-8"), token.encode("utf-8"))
     except Exception:
-        matched = False
-    if not matched:
+        return False
+
+
+def _require_dashboard(request) -> None:
+    if not _dashboard_allowed(request):
         raise ApiError("forbidden", "Dashboard token required.", status=403)
 
 
 def dashboard(request):
-    """Serve rich HTML analytics dashboard at root URL."""
+    """Serve rich HTML analytics dashboard at root URL.
+
+    Behind the same token as the write endpoints it fronts. It lists every match, every training
+    run and the raw analytics JSON, which is the whole operational picture of the deployment -
+    not something to serve to whoever finds the hostname.
+    """
+    if not _dashboard_allowed(request):
+        return HttpResponseForbidden(
+            "CrownFoundry dashboard: set CROWNFOUNDRY_DASHBOARD_TOKEN and pass it as the "
+            "X-Dashboard-Token header or a ?token= query parameter."
+        )
     try:
         perf = metrics.ai_performance()
     except Exception:
@@ -133,14 +153,14 @@ def dashboard(request):
     return render(request, "analytics/dashboard.html", context)
 
 
-@endpoint("GET")
+@endpoint("GET", scope="analytics")
 def ai_performance(request):
     """``GET /api/analytics/ai-performance/`` — ARCHITECTURE.md section 5."""
     payload = metrics.ai_performance()
     return Response({"ok": True, **payload})
 
 
-@endpoint("GET")
+@endpoint("GET", scope="analytics")
 def summary(request):
     """``GET /api/analytics/summary/`` — the summary object alone."""
     payload = metrics.summary()
@@ -254,7 +274,7 @@ def evaluate_board_position(request):
         raise
 
 
-@endpoint("POST")
+@endpoint("POST", scope="ai_turn")
 def simulate_match(request):
     """``POST /api/analytics/simulate-match/`` — Run fast exhibition game between 2 agents."""
     _require_dashboard(request)
@@ -281,7 +301,7 @@ def simulate_match(request):
     )
 
 
-@endpoint("GET")
+@endpoint("GET", scope="analytics")
 def board_heatmap(request):
     """``GET /api/analytics/board-heatmap/`` — 32-square traffic and piece occupancy frequencies."""
     return Response(metrics.board_heatmap())

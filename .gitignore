@@ -47,6 +47,12 @@ htmlcov/
 local_settings.py
 db.sqlite3-journal
 crownfoundry.sqlite3-journal
+# The development database itself. Only the journal sidecars were ignored before, which is how
+# 23 MB of real match history ended up in a public repository. Production uses DATABASE_URL
+# against PostgreSQL; this file is a laptop convenience.
+Backend/crownfoundry.sqlite3
+Backend/crownfoundry.sqlite3-wal
+Backend/crownfoundry.sqlite3-shm
 
 # --- Android & Gradle ---
 .gradle/
@@ -63,6 +69,14 @@ captures/
 local.properties
 Mobile/local.properties
 Mobile/keystore.properties
+Mobile/keystore.properties.*
+
+# Signing material never belongs in the repository. release.jks was committed in the initial
+# commit and the repository is public, so the key it holds must be treated as disclosed and
+# rotated before publishing - removing it from tracking does not remove it from history.
+*.jks
+*.keystore
+Mobile/release.jks
 *.hprof
 
 # Android Studio / IntelliJ project files
@@ -75,9 +89,15 @@ Mobile/keystore.properties
 .idea/navEditor.xml
 .idea/assetWizardSettings.xml
 
-# Android Keystore files (keep release.jks if committed, or exclude secrets)
+# Android keystore files. There is no "keep release.jks if committed" case: a signing key in a
+# public repository is a disclosed key, and the re-inclusion rule that used to live here is how
+# this one got committed in the first place.
 *.keystore
-!release.jks
+*.jks
+*.jks.*
+
+# Build outputs. The bundle is produced by a release build, not stored.
+*.aab
 
 # Logs & Temporary Files
 *.log
@@ -85,3 +105,11 @@ Mobile/keystore.properties
 dump.xml
 dump_test.xml
 Backend/var/
+Backend/staticfiles/
+Backend/.env
+
+
+# Local agent tooling. Generic skill definitions, nothing to do with this project.
+.cursor/
+.claude/
+.agents/

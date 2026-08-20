@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+crownfoundry.sqlite3
+crownfoundry.sqlite3-wal
+crownfoundry.sqlite3-shm
+staticfiles/
+var/
+.env

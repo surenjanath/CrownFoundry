@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.edit
+import com.surenjanath.crownfoundry.BuildConfig
 
 const val colorPaletteNameKey = "colorPaletteName"
 const val colorPaletteModeKey = "colorPaletteMode"
@@ -21,9 +22,46 @@ const val textSizeKey = "textSize"
 const val homeScreenTabIndexKey = "homeScreenTabIndex"
 const val insightsScreenTabIndexKey = "insightsScreenTabIndex"
 
-/** Where the Django referee lives. 10.0.2.2 is the host machine as the emulator sees it. */
+/** Where the Django referee lives, until the player says otherwise in Settings. */
 const val backendUrlKey = "backendUrl"
-const val defaultBackendUrl = "http://10.0.2.2:8000"
+
+/**
+ * The referee this build ships pointed at, set by `crownfoundry.backendUrl` at build time.
+ *
+ * A debug build defaults to `http://10.0.2.2:8000`, the emulator's route to the developer's
+ * machine. A release build has to name a real host, because that default is unreachable from a
+ * real phone and would make every first run look like a broken app.
+ */
+val defaultBackendUrl: String = BuildConfig.DEFAULT_BACKEND_URL
+
+/** The build property value that means "this build ships without a server". */
+const val noBackend = "none"
+
+/**
+ * Whether this build ships pointed at a server at all.
+ *
+ * `crownfoundry.backendUrl=none` publishes the bundled engine as the whole product: no sync, no
+ * downloaded policy, no analytics from a referee. Everything offline play already does still
+ * works, because none of it needed the network in the first place.
+ *
+ * It is a *default*, not a prohibition - a player who has their own referee can still type its
+ * address into Settings, and [effectiveBackendUrl] will start using it.
+ */
+val backendConfigured: Boolean = defaultBackendUrl != noBackend
+
+/**
+ * The address to actually use, or `null` when there is no server to talk to.
+ *
+ * `null` is the whole point: it is what stops an offline-only build from spending every screen's
+ * first moment resolving a hostname that was never meant to exist. Without it the build default
+ * would be taken literally, and `http://none/api/...` fails in a way the offline fallback does
+ * not even recognise as a connectivity problem.
+ */
+fun effectiveBackendUrl(stored: String?): String? {
+    val trimmed = stored?.trim().orEmpty()
+    if (trimmed.isNotEmpty() && trimmed != noBackend) return trimmed
+    return if (backendConfigured) defaultBackendUrl else null
+}
 
 /** Stable identity for this install, so the AI can model one opponent across matches. */
 const val playerIdKey = "playerId"

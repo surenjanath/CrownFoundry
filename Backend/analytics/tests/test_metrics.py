@@ -210,11 +210,12 @@ class AnalyticsMetricsTest(TestCase):
     def test_policy_version_and_elo(self):
         # Requirement 12: Policy version and elo from active RLPolicyWeights row
         RLPolicyWeights.objects.create(version=1, is_active=False, elo_rating=1300)
-        RLPolicyWeights.objects.create(version=2, is_active=True, elo_rating=1500)
+        RLPolicyWeights.objects.create(version=2, is_active=True, elo_rating=1500, games_trained=1679)
         
         data = ai_performance()
         self.assertEqual(data["summary"]["policy_version"], 2)
         self.assertEqual(data["summary"]["elo"], 1500)
+        self.assertEqual(data["summary"]["games_trained"], 1679)
 
     def test_streaks_and_difficulty_breakdown(self):
         m1 = self.create_match(winner=AI_SIDE)

@@ -39,7 +39,15 @@ class HybridCheckersApi(
     private val remote: CheckersApi,
     private val local: OfflineCheckersApi,
     private val preferences: EnginePreferences,
-    private val engine: EngineStore = EngineStore
+    private val engine: EngineStore = EngineStore,
+    /**
+     * Whether there is a referee to talk to at all.
+     *
+     * False for a build published without a server, and for one whose player has not named one.
+     * It is checked on every call rather than captured once, because the player can type an
+     * address into Settings mid-session and expect the next call to use it.
+     */
+    private val backendAvailable: () -> Boolean = { true }
 ) : CheckersApi {
 
     /** True when the last call that mattered was served by the on-device engine. */
@@ -53,8 +61,18 @@ class HybridCheckersApi(
     /** The player asked for offline play outright, and there is an engine to give them. */
     private val prefersLocal get() = preferences.preferOffline && engine.state.canPlayOffline
 
+    /**
+     * There is no referee to reach, so every call is answered here.
+     *
+     * Distinct from [prefersLocal], which is a preference and requires an engine to honour. This
+     * is a fact about the deployment: with no address configured there is nothing to try, and
+     * attempting it anyway would turn every screen into a connection error for no reason. When
+     * there is also no engine the local referee says so itself, which is the honest message.
+     */
+    private val offlineOnly get() = !backendAvailable()
+
     override suspend fun health(): Outcome<HealthDto> {
-        if (prefersLocal) return local.health().also { isOffline = true }
+        if (offlineOnly || prefersLocal) return local.health().also { isOffline = true }
         return when (val outcome = remote.health()) {
             is Outcome.Success -> outcome.also { isOffline = false }
             is Outcome.Failure ->
@@ -68,7 +86,7 @@ class HybridCheckersApi(
         playerId: String?,
         rules: MatchRulesDto?
     ): Outcome<MatchDto> {
-        if (prefersLocal) {
+        if (offlineOnly || prefersLocal) {
             return local.startMatch(difficulty, playerId, rules).also { isOffline = true }
         }
 
@@ -100,7 +118,7 @@ class HybridCheckersApi(
 
     override suspend fun matches(playerId: String?, limit: Int): Outcome<MatchListDto> {
         val offline = local.matches(playerId, limit).valueOrNull?.matches.orEmpty()
-        if (prefersLocal) {
+        if (offlineOnly || prefersLocal) {
             isOffline = true
             return Outcome.Success(MatchListDto(ok = true, matches = offline))
         }
@@ -136,7 +154,7 @@ class HybridCheckersApi(
         route(matchId) { it.resign(matchId) }
 
     override suspend fun performance(): Outcome<PerformanceDto> {
-        if (prefersLocal) return local.performance().also { isOffline = true }
+        if (offlineOnly || prefersLocal) return local.performance().also { isOffline = true }
         return when (val outcome = remote.performance()) {
             is Outcome.Success -> outcome.also { isOffline = false }
             is Outcome.Failure ->
@@ -146,7 +164,7 @@ class HybridCheckersApi(
     }
 
     override suspend fun summary(): Outcome<AnalyticsSummaryDto> {
-        if (prefersLocal) return local.summary().also { isOffline = true }
+        if (offlineOnly || prefersLocal) return local.summary().also { isOffline = true }
         return when (val outcome = remote.summary()) {
             is Outcome.Success -> outcome.also { isOffline = false }
             is Outcome.Failure ->
@@ -160,7 +178,7 @@ class HybridCheckersApi(
         matchId: String,
         call: suspend (CheckersApi) -> Outcome<T>
     ): Outcome<T> {
-        if (LocalMatchStore.isOffline(matchId)) {
+        if (offlineOnly || LocalMatchStore.isOffline(matchId)) {
             isOffline = true
             return call(local)
         }

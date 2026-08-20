@@ -75,17 +75,23 @@ def _current_board(match):
 def ai_turn(match) -> AITurnResult:
     """Choose the AI's move for ``match`` and narrate it. Does not persist board state."""
     from . import ollama
-    from .agent import AdaptiveAgent
+    from .agent import AdaptiveAgent, reconstruct
     from .models import AIMoveMemory
+    from .opening_book import book_move
 
     board = _current_board(match)
     agent = _agent_for(match)
-    move, considered = agent.select(board, explore=True)
+
+    history = [ply.move.notation() for ply in reconstruct(match)]
+    book = book_move(board, history)
+    if book is not None:
+        move = book
+        considered = [ScoredMove(move.notation(), 10.0)]
+    else:
+        move, considered = agent.select(board, explore=False)
     move_index = {m.notation(): m for m in board.legal_moves()}
 
     narration = ollama.narrate(board, move, considered, move_index, side=board.side_to_move)
-    if narration.notation != move.notation() and narration.notation in move_index:
-        move = move_index[narration.notation]
 
     notation = move.notation()
     q_value = next((c.q for c in considered if c.notation == notation), considered[0].q)
@@ -207,12 +213,17 @@ def on_move_played(match, state, move, *, by: str) -> None:
             logger.exception("online learning step failed for match %s", getattr(match, "pk", "?"))
 
 
-def on_match_finished(match) -> None:
-    """Hook after a match ends. Queues the post-match Q update."""
+def on_match_finished(match, *, train: bool = True) -> None:
+    """Hook after a match ends. Updates the opponent model and queues the post-match Q update.
+
+    ``train=False`` keeps the per-player half - the opponent model that shapes *this* player's
+    adaptive difficulty - while withholding the game from the shared policy. That split exists
+    for offline matches synced up from a device: see ``ai.views._finish_hook``.
+    """
     from . import conf, tasks
 
     _update_opponent_model(match)
-    if not conf.get("POST_MATCH_LEARNING", True):
+    if not train or not conf.get("POST_MATCH_LEARNING", True):
         return
     match_id = getattr(match, "match_id", None) or getattr(match, "pk", None)
     if match_id is None:

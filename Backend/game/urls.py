@@ -12,4 +12,6 @@ urlpatterns = [
     path("match/<uuid:match_id>/resign/", views.match_resign, name="match-resign"),
     path("matches/", views.match_list, name="match-list"),
     path("ai/generate-turn/", views.ai_generate_turn, name="ai-generate-turn"),
+    # The data-deletion path. No accounts exist, so the install's own id is the handle.
+    path("player/<uuid:player_id>/", views.player_delete, name="player-delete"),
 ]

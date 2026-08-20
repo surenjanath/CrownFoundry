@@ -27,6 +27,13 @@ from game.engine.board import Board
 from game.engine.notation import BLACK, WHITE
 
 CURRICULA = frozenset({"self", "curriculum", "vs_greedy"})
+MAX_MANUAL_GAMES = 25000
+MIN_MANUAL_GAMES = 5
+
+
+def clamp_games(games: int) -> int:
+    """Bound a dashboard/API job so a typo cannot start an unbounded run."""
+    return max(MIN_MANUAL_GAMES, min(int(games), MAX_MANUAL_GAMES))
 _cancel = threading.Event()
 _idle_enabled = True
 _idle_thread: threading.Thread | None = None
@@ -203,6 +210,29 @@ def evaluate_agent(agent, opponent, games: int, *, seed: int = 0, max_plies: int
         "score": round((wins + 0.5 * draws) / total, 3),
         "avg_plies": round(turns / total, 1),
     }
+
+
+def guard_score(network, *, games: int = 6, depth: int = 2, seed: int = 1234,
+                max_plies: int = 120) -> float:
+    """How well ``network`` does against the fixed baselines, cheaply enough to run per match.
+
+    Deliberately shallow and short - about a second - because this runs after every finished
+    game, not as a training experiment. It does not need to measure strength precisely; it needs
+    to notice a policy falling off a cliff, and a two-ply search against a random and a greedy
+    opponent notices that with room to spare.
+
+    Returns the mean of the two pair scores, where 1.0 is winning everything and 0.0 is losing
+    everything.
+    """
+    from .agent import AdaptiveAgent, Knobs
+
+    knobs = Knobs(depth=depth, epsilon=0.0, risk=0.6, top_k=5)
+    agent = AdaptiveAgent(network=network, difficulty="hard", knobs=knobs, use_memory=False)
+    against_greedy = evaluate_agent(agent, GreedyMaterialAgent(), games, seed=seed,
+                                    max_plies=max_plies)
+    against_random = evaluate_agent(agent, RandomAgent(seed=seed + 1), games, seed=seed + 100,
+                                    max_plies=max_plies)
+    return (float(against_greedy["score"]) + float(against_random["score"])) / 2.0
 
 
 def benchmark_baselines(agent, games: int = 15, seed: int = 1234, max_plies: int = 200) -> dict:
@@ -486,7 +516,7 @@ def start_training(
     kind: str = "manual",
 ) -> tuple[bool, str]:
     """Trigger background training session if not already running."""
-    games = max(5, min(games, 1000))
+    games = clamp_games(games)
     depth = max(1, min(depth, 4))
     epsilon = max(0.05, min(epsilon, 0.5))
     epochs = max(1, min(epochs, 5))

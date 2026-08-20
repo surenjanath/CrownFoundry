@@ -30,7 +30,9 @@ import com.surenjanath.crownfoundry.ui.screens.home.rememberPlayerId
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
 import com.surenjanath.crownfoundry.utils.backendUrlKey
 import com.surenjanath.crownfoundry.utils.copyToClipboard
+import com.surenjanath.crownfoundry.utils.backendConfigured
 import com.surenjanath.crownfoundry.utils.defaultBackendUrl
+import com.surenjanath.crownfoundry.utils.effectiveBackendUrl
 import com.surenjanath.crownfoundry.utils.rememberPreference
 import kotlinx.coroutines.launch
 
@@ -43,7 +45,9 @@ fun BackendSettings() {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var backendUrl by rememberPreference(backendUrlKey, defaultBackendUrl)
+    // Empty rather than the build default, so a build published without a server shows "not set"
+    // instead of presenting the `none` sentinel as though it were an address someone could reach.
+    var backendUrl by rememberPreference(backendUrlKey, if (backendConfigured) defaultBackendUrl else "")
     val playerId = rememberPlayerId()
 
     var isEditingUrl by remember { mutableStateOf(false) }
@@ -52,17 +56,17 @@ fun BackendSettings() {
     // The client is a process-wide object; keeping it in step with the stored preference here
     // means a change takes effect on the very next call, without restarting anything.
     LaunchedEffect(backendUrl) {
-        CrownFoundryClient.baseUrl = backendUrl
+        effectiveBackendUrl(backendUrl)?.let { CrownFoundryClient.baseUrl = it }
     }
 
     if (isEditingUrl) {
         TextFieldDialog(
-            hintText = defaultBackendUrl,
+            hintText = if (backendConfigured) defaultBackendUrl else "https://your-server.example.com",
             initialTextInput = backendUrl,
             onDismiss = { isEditingUrl = false },
             onDone = { entered ->
-                backendUrl = normaliseBaseUrl(entered)
-                CrownFoundryClient.baseUrl = backendUrl
+                backendUrl = if (entered.isBlank()) "" else normaliseBaseUrl(entered)
+                effectiveBackendUrl(backendUrl)?.let { CrownFoundryClient.baseUrl = it }
                 probe = Probe.Untested
             }
         )
@@ -85,15 +89,21 @@ fun BackendSettings() {
 
         SettingsEntry(
             title = "Backend URL",
-            text = backendUrl,
+            text = backendUrl.ifBlank { "Not set - playing offline" },
             onClick = { isEditingUrl = true }
         )
 
         SettingsDescription(
-            text = "$defaultBackendUrl is how the Android emulator reaches a server running on " +
-                    "your own machine. On a real phone, use the machine's address on your " +
-                    "network - something like http://192.168.1.20:8000 - and make sure Django is " +
-                    "listening on it, not only on localhost."
+            text = if (backendConfigured) {
+                "$defaultBackendUrl is how the Android emulator reaches a server running on " +
+                        "your own machine. On a real phone, use the machine's address on your " +
+                        "network - something like http://192.168.1.20:8000 - and make sure Django " +
+                        "is listening on it, not only on localhost."
+            } else {
+                "This build ships without a referee, and does not need one: the opponent runs on " +
+                        "this phone, and so do match history, review and puzzles. Name a server " +
+                        "here to sync your games and pick up newer opponents as they are trained."
+            }
         )
 
         SettingsGroupSpacer()

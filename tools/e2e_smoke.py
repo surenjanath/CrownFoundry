@@ -407,7 +407,12 @@ def check_engine_distribution(url: str, report: Report) -> dict:
                        "elo", "games_trained", "size_bytes", "checksum", "url")
     report.check("manifest payload", not problem, problem)
 
-    blob, headers, code = fetch_bytes(url, "/api/ai/engine/download/")
+    # Pinned to the version the manifest named, exactly as the Android client does. Without this
+    # the two requests can straddle a training run and describe different policies, and the
+    # checksum comparison below fails on a server that is simply doing its job.
+    blob, headers, code = fetch_bytes(
+        url, f"/api/ai/engine/download/?version={manifest.get('version')}"
+    )
     report.check("download is 200", code == 200, f"got {code}")
     report.check(
         "download is the size the manifest promised",
@@ -452,7 +457,7 @@ def check_engine_distribution(url: str, report: Report) -> dict:
         )
 
     # A second fetch quoting the ETag should cost nothing.
-    _, _, code = fetch_bytes(url, "/api/ai/engine/download/",
+    _, _, code = fetch_bytes(url, f"/api/ai/engine/download/?version={manifest.get('version')}",
                              headers={"If-None-Match": headers.get("ETag", "")})
     report.check("a matching ETag gives a 304", code == 304, f"got {code}")
 

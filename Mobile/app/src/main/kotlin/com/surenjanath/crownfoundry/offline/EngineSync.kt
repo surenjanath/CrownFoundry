@@ -91,7 +91,9 @@ class EngineSync(
                 )
             }
 
-            val blob = when (val outcome = api.downloadEngine()) {
+            // Pinned to the version the manifest named, so training publishing a newer policy
+            // between these two requests cannot make the checksum below disagree.
+            val blob = when (val outcome = api.downloadEngine(manifest.version)) {
                 is Outcome.Success -> outcome.value
                 is Outcome.Failure -> return Result.Failed(outcome.reason)
             }

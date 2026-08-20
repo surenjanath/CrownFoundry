@@ -47,14 +47,18 @@ def _finished_matches() -> list:
     )
 
 
-def _policy() -> tuple[int, int]:
-    """``(policy_version, elo)`` from the active policy row, with defaults."""
+def _policy() -> tuple[int, int, int]:
+    """``(policy_version, elo, games_trained)`` from the active policy row, with defaults."""
     from ai.models import RLPolicyWeights
 
     row = RLPolicyWeights.active()
     if row is None:
-        return 0, DEFAULT_ELO
-    return int(row.version or 0), int(row.elo_rating or DEFAULT_ELO)
+        return 0, DEFAULT_ELO, 0
+    return (
+        int(row.version or 0),
+        int(row.elo_rating or DEFAULT_ELO),
+        int(getattr(row, "games_trained", 0) or 0),
+    )
 
 
 def _mistake_counts(match_pks) -> dict:
@@ -91,9 +95,9 @@ def _training_history() -> list[dict]:
 
 
 def empty_summary() -> dict:
-    version, elo = 0, DEFAULT_ELO
+    version, elo, games_trained = 0, DEFAULT_ELO, 0
     try:
-        version, elo = _policy()
+        version, elo, games_trained = _policy()
     except Exception:
         logger.debug("policy table unavailable", exc_info=True)
     return {
@@ -104,6 +108,7 @@ def empty_summary() -> dict:
         "ai_win_rate": 0.0,
         "elo": elo,
         "policy_version": version,
+        "games_trained": games_trained,
         "games_to_50_percent": None,
         "avg_turns": 0.0,
         "mistake_repetition_rate": 0.0,
