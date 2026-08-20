@@ -8,12 +8,15 @@
 ![Django](https://img.shields.io/badge/Django-6.0-092E20?logo=django&logoColor=white)
 ![Ktor](https://img.shields.io/badge/Ktor-2.3-F88909?logo=ktor&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-LLM_Bridge-000000?logo=ollama&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-868_Passing-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-930_Passing-brightgreen)
+
+[![Google Play](https://img.shields.io/badge/Google_Play-Closed_Testing-414141?logo=googleplay&logoColor=white)](https://play.google.com/apps/testing/com.surenjanath.crownfoundry)
 
 <br/>
 
-**Adaptive AI Checkers** — English draughts on an Android client refereed by a Django backend with an online Reinforcement Learning engine and natural-language move narration.
+**Adaptive AI Checkers** — English draughts against a reinforcement-learning opponent that runs entirely on your phone. An optional Django backend trains it further, referees online matches and narrates its moves through a local LLM.
 
+[Get the app](#-get-the-app) •
 [Features](#-key-features) •
 [Architecture](#-architecture) •
 [Screenshots](#-screenshots) •
@@ -26,11 +29,35 @@
 
 ---
 
+## 📲 Get the app
+
+CrownFoundry is on Google Play, in **closed testing** while it gathers feedback.
+
+**[→ Join the test](https://play.google.com/apps/testing/com.surenjanath.crownfoundry)**
+
+Testers have to be added by hand first — that is how Google's closed tracks work, not a
+gate I wanted:
+
+1. Email **surenjanath.singh@gmail.com** with the Google account address you use on your
+   Android phone. It has to be that exact address or Play will not let you in.
+2. Once you are on the list, open the link above on your phone and tap **Become a tester**.
+3. Install from Play as normal.
+
+Android 5.0 (API 21) or newer. Free, no account, no ads, and nothing to configure — the
+trained opponent ships inside the app, so it plays at full strength with no connection.
+
+No data leaves your phone unless you point the app at a server yourself.
+See the [privacy policy](https://surenjanath.github.io/CrownFoundry/privacy.html).
+
+---
+
 ## 📖 Overview
 
 **You play. It loses. It works out why, and the next game is harder.**
 
-CrownFoundry pairs an Android client crafted in Jetpack Compose with a Django backend that serves as both strict referee and continuous reinforcement-learning gym. Every move made in every game feeds into a Q-learning replay buffer, adjusting policy weights so the AI learns your tactical habits in real time.
+CrownFoundry is an Android client crafted in Jetpack Compose, carrying a trained Q-network that referees and plays entirely on the device. Every move feeds a replay buffer and adjusts the policy weights, so the opponent learns your tactical habits as you play — with no server involved.
+
+Point it at the Django backend and it gains more: a second referee that validates every move independently, a self-play gym that keeps training the shared policy between games, match history synced across devices, and the analytics behind the Insights tab. None of it is required to play.
 
 When the opponent moves, an integrated local LLM bridge (via **Ollama**) translates the Q-network's evaluation and board dynamics into live, in-character natural language commentary.
 
@@ -86,7 +113,7 @@ When the opponent moves, an integrated local LLM bridge (via **Ollama**) transla
   - **Online Updates**: Every AI turn updates replay memory and executes a gradient step.
   - **Post-Match Credit Assignment**: Replays completed matches to backpropagate terminal rewards (+10 Win, -10 Loss, +3 Crown, +2 Capture, -2 Lost Man).
   - **Self-Play Training**: Headless self-play engine (`python manage.py train_selfplay`) for offline policy bootstrapping and evaluation.
-- **True Offline Play**: The trained policy ships to the phone as a ~110 KB artifact and runs there — a full Kotlin port of the rules referee, the feature encoder, the Q-network and the alpha-beta search. Same weights, same depth, same node budget as the server, so the offline opponent is not a weaker one. If the device's copy has fallen behind, it says **"AI engine needs updating"** and keeps playing with what it has.
+- **True Offline Play**: The trained policy is *bundled in the APK* as a ~110 KB artifact and runs on the device — a full Kotlin port of the rules referee, the feature encoder, the Q-network and the alpha-beta search. Same weights, same depth, same node budget as the server, so the offline opponent is not a weaker one, and a fresh install is playable before it has ever seen a network. Pointed at a server it picks up newer policies as they are trained; if its copy has fallen behind it says **"AI engine needs updating"** and keeps playing with what it has.
 - **It Learns Offline Too**: Finished offline games run the same Monte-Carlo credit assignment the backend runs, fine-tuning the on-device weights before the next game starts. Those games then sync back to the server, which replays every ply through the real engine, trains on them, and publishes a new policy the device picks up — so a week spent offline still feeds the shared opponent.
 - **Post-Game Analysis**: Opening a finished match scores every ply against the on-device engine — an evaluation curve with the position you are looking at marked on it, a verdict under each move naming what was there instead, and the one move that decided the game. It runs on the phone, so it works with no connection; a device with no engine installed is told so in one line rather than left waiting.
 - **Puzzles From Your Own Games**: The mistakes the analysis finds become practice positions — a real position you reached, with a move you could have played at the time. Revealing the answer is a dead end on purpose: it counts as an attempt and never as a solve.
@@ -201,6 +228,9 @@ sequenceDiagram
 ---
 
 ## 🚀 Quickstart
+
+> **You do not need any of this to play.** The published app is self-contained — this section is
+> for running the backend and building from source.
 
 ### Prerequisites
 
