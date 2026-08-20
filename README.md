@@ -33,15 +33,17 @@
 
 CrownFoundry is on Google Play, in **closed testing** while it gathers feedback.
 
-**[→ Join the test](https://play.google.com/apps/testing/com.surenjanath.crownfoundry)**
+Nobody has to invite you — joining the testers group is what grants access:
 
-Testers have to be added by hand first — that is how Google's closed tracks work, not a
-gate I wanted:
+1. **[Join the testers group](https://groups.google.com/g/ss-mobile-app-testing)** with the
+   Google account you use on your Android phone. Nothing to fill in.
+2. **[Opt in on Google Play](https://play.google.com/apps/testing/com.surenjanath.crownfoundry)**,
+   tap *Become a tester*, and install.
 
-1. Email **surenjanath.singh@gmail.com** with the Google account address you use on your
-   Android phone. It has to be that exact address or Play will not let you in.
-2. Once you are on the list, open the link above on your phone and tap **Become a tester**.
-3. Install from Play as normal.
+Use the same Google account for both steps, or Play will not recognise you as a tester. The
+[store page](https://play.google.com/store/apps/details?id=com.surenjanath.crownfoundry) only
+opens once you have opted in — until then it shows "not found", which is how closed testing
+works rather than a broken link.
 
 Android 5.0 (API 21) or newer. Free, no account, no ads, and nothing to configure — the
 trained opponent ships inside the app, so it plays at full strength with no connection.
