@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -47,7 +49,17 @@ inline fun NavigationRail(
     tabIndex: Int,
     crossinline onTabIndexChanged: (Int) -> Unit,
     content: @Composable ColumnScope.(@Composable (Int, String, Int) -> Unit) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * An icon under the tabs that goes somewhere rather than switching tab.
+     *
+     * `null` hides it, which is how the leaderboard entry disappears on a build with no Play
+     * Games and on a device where the player has not signed in - an icon that opens nothing is
+     * worse than no icon.
+     */
+    secondaryIconButtonId: Int? = null,
+    noinline onSecondaryIconButtonClick: () -> Unit = {},
+    secondaryIconContentDescription: String? = null
 ) {
     val (colorPalette, typography) = LocalAppearance.current
 
@@ -152,6 +164,21 @@ inline fun NavigationRail(
                         textContent()
                     }
                 }
+            }
+
+            secondaryIconButtonId?.let { iconId ->
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Image(
+                    painter = painterResource(iconId),
+                    contentDescription = secondaryIconContentDescription,
+                    colorFilter = ColorFilter.tint(colorPalette.textSecondary),
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable(onClick = onSecondaryIconButtonClick)
+                        .padding(all = 12.dp)
+                        .size(22.dp)
+                )
             }
         }
     }

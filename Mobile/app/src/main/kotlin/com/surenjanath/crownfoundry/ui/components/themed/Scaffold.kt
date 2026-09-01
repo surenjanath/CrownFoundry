@@ -26,6 +26,10 @@ fun Scaffold(
     onTabChanged: (Int) -> Unit,
     tabColumnContent: @Composable ColumnScope.(@Composable (Int, String, Int) -> Unit) -> Unit,
     modifier: Modifier = Modifier,
+    /** An icon under the tabs that navigates rather than switching tab; `null` hides it. */
+    secondaryIconButtonId: Int? = null,
+    onSecondaryIconButtonClick: () -> Unit = {},
+    secondaryIconContentDescription: String? = null,
     content: @Composable AnimatedVisibilityScope.(Int) -> Unit
 ) {
     val (colorPalette) = LocalAppearance.current
@@ -40,7 +44,10 @@ fun Scaffold(
             onTopIconButtonClick = onTopIconButtonClick,
             tabIndex = tabIndex,
             onTabIndexChanged = onTabChanged,
-            content = tabColumnContent
+            content = tabColumnContent,
+            secondaryIconButtonId = secondaryIconButtonId,
+            onSecondaryIconButtonClick = onSecondaryIconButtonClick,
+            secondaryIconContentDescription = secondaryIconContentDescription
         )
 
         AnimatedContent(

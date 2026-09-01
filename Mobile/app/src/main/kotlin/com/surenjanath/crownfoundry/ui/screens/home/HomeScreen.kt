@@ -24,6 +24,10 @@ import com.surenjanath.crownfoundry.ui.screens.puzzles.PuzzleScreen
 import com.surenjanath.crownfoundry.ui.screens.puzzles.PuzzlesScreen
 import com.surenjanath.crownfoundry.ui.screens.reviewRoute
 import com.surenjanath.crownfoundry.ui.screens.settings.SettingsScreen
+import androidx.compose.ui.platform.LocalContext
+import com.surenjanath.crownfoundry.MainActivity
+import com.surenjanath.crownfoundry.leaderboard.Leaderboard
+import com.surenjanath.crownfoundry.leaderboard.Leaderboards
 import com.surenjanath.crownfoundry.ui.screens.dailyRoute
 import com.surenjanath.crownfoundry.ui.screens.settingsRoute
 import com.surenjanath.crownfoundry.ui.screens.training.TrainingScreen
@@ -74,9 +78,23 @@ fun HomeScreen() {
                 defaultValue = 0
             )
 
+            // Only offered once Play Games has actually signed the player in. `Leaderboards.service`
+            // is Compose state, so the icon appears by itself a moment after launch rather than
+            // needing the screen to be revisited - and it never appears at all in a build with no
+            // Play Games, where it would open nothing.
+            val context = LocalContext.current
+            val canRank = Leaderboards.available
+
             Scaffold(
                 topIconButtonId = R.drawable.equalizer,
                 onTopIconButtonClick = { settingsRoute.global() },
+                secondaryIconButtonId = R.drawable.trophy.takeIf { canRank },
+                secondaryIconContentDescription = "Leaderboards",
+                onSecondaryIconButtonClick = {
+                    (context as? MainActivity)?.let {
+                        Leaderboards.show(it, Leaderboard.RatingBoard)
+                    }
+                },
                 tabIndex = tabIndex,
                 onTabChanged = onTabChanged,
                 tabColumnContent = { Tab ->
