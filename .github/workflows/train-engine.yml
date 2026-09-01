@@ -83,9 +83,44 @@ jobs:
         working-directory: Backend
         run: python manage.py export_engine --out "$RUNNER_TEMP/candidate.cfe"
 
+      # `train_selfplay` has a gate of its own, and when it rejects a run the active policy is
+      # left untouched - so `export_engine` hands back the champion. Comparing that against
+      # itself is a minute and a half of CI to rediscover that a thing equals itself, and it
+      # makes the summary say "did not clearly beat" when the truth is "there was nothing new".
+      - name: Did training actually produce a new policy?
+        id: candidate
+        run: |
+          version() {
+            python - "$1" <<'PY'
+          import json, struct, sys
+          blob = open(sys.argv[1], "rb").read()
+          length = struct.unpack("<I", blob[4:8])[0]
+          print(json.loads(blob[8 : 8 + length])["version"])
+          PY
+          }
+          champion=$(version Mobile/app/src/main/assets/policy.cfe)
+          candidate=$(version "$RUNNER_TEMP/candidate.cfe")
+          echo "champion=$champion candidate=$candidate"
+
+          # A version that could not be read must stop the run rather than be treated as a match:
+          # two empty strings compare equal, which would silently skip the gate and report that
+          # training produced nothing.
+          if [ -z "$champion" ] || [ -z "$candidate" ]; then
+            echo "could not read a policy version from one of the artifacts" >&2
+            exit 1
+          fi
+
+          if [ "$champion" = "$candidate" ]; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Compare it against the policy it would replace
         id: gate
+        if: steps.candidate.outputs.new == 'true'
         working-directory: Mobile
+
         run: |
           set -o pipefail
           ./gradlew :engine:testDebugUnitTest --tests '*ArtifactComparisonTest*' \
@@ -138,5 +173,11 @@ jobs:
       - name: Report a run that changed nothing
         if: steps.gate.outputs.verdict != 'publish'
         run: |
-          echo "The candidate did not beat the current policy, so nothing was published." \
-            >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.candidate.outputs.new }}" != "true" ]; then
+            echo "Training produced no new policy - its own evaluation rejected the run, so the" \
+                 "active policy is unchanged and there was nothing to compare." \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "The candidate did not beat the current policy, so nothing was published." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
