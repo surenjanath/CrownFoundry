@@ -72,6 +72,27 @@ class Command(BaseCommand):
         parser.add_argument("--seed", type=int, default=1234)
         parser.add_argument("--max-plies", type=int, default=200)
         parser.add_argument("--epochs", type=int, default=2, help="passes per game's transitions")
+        parser.add_argument(
+            "--fit-steps",
+            type=int,
+            default=None,
+            help=(
+                "Gradient steps over the replay buffer after all the games have been played. "
+                "The default is one step per two games. Use 0 for the old per-game fitting."
+            ),
+        )
+        parser.add_argument(
+            "--lr-scale",
+            type=float,
+            default=None,
+            help=(
+                "Learning rate for this run, as a fraction of the policy's own. Defaults to 0.1 "
+                "when continuing from a stored policy and 1.0 with --fresh."
+            ),
+        )
+        parser.add_argument(
+            "--batch-size", type=int, default=64, help="samples per gradient step"
+        )
         parser.add_argument("--report-every", type=int, default=10)
         parser.add_argument("--report", action="store_true", help="print the progress table")
         parser.add_argument(
@@ -104,7 +125,28 @@ class Command(BaseCommand):
         report = bool(options["report"])
         every = max(1, int(options["report_every"]))
 
-        network = new_network(seed=seed) if options["fresh"] else None
+        fresh = bool(options["fresh"])
+        # A tenth, unless this run is building a policy from nothing.
+        #
+        # Fitting a few hundred fresh self-play games at the rate the policy was originally trained
+        # at is not fine-tuning, it is overwriting - a 200-game run at the full rate took the
+        # shipped v42 from beating a greedy opponent every game to beating it half the time, and
+        # the save gate correctly threw the result away. The device's trainer arrived at the same
+        # number the same way; see `Mobile/engine/.../SelfPlay.kt`.
+        lr_scale = options["lr_scale"]
+        if lr_scale is None:
+            lr_scale = 1.0 if fresh else 0.1
+        lr_scale = float(lr_scale)
+        if lr_scale <= 0:
+            raise CommandError("--lr-scale must be positive")
+
+        fit_steps = options["fit_steps"]
+        if fit_steps is None:
+            fit_steps = max(1, games // 2)
+        fit_steps = int(fit_steps)
+        batch_size = max(1, int(options["batch_size"]))
+
+        network = new_network(seed=seed) if fresh else None
         agent = AdaptiveAgent(
             network=network,
             replay=ReplayBuffer(capacity=int(conf.get("REPLAY_CAPACITY", 20000)), seed=seed),
@@ -149,7 +191,15 @@ class Command(BaseCommand):
                 batch.extend(build_transitions(plies, winner, side, gamma=agent.gamma))
             transitions_seen += len(batch)
             agent.replay.extend(batch)
-            loss = agent.train_on(batch, epochs=int(options["epochs"]))
+            # With a fitting phase at the end, the games are collected and not fitted here.
+            # Fitting game by game has the policy chasing whichever game it just played, and from
+            # the second third of the curriculum onwards the opponent *is* the policy - so the
+            # run drifts somewhere neither the corpus nor the fixed opponents follow.
+            loss = (
+                agent.train_on(batch, epochs=int(options["epochs"]))
+                if fit_steps <= 0
+                else 0.0
+            )
             losses.append(loss)
 
             if report and (game_index % every == 0 or game_index == games):
@@ -159,8 +209,27 @@ class Command(BaseCommand):
                     f"{loss:>10.5f} {recent:>10.5f}"
                 )
 
+        # One fitting phase over the whole buffer, so every step sees a mix of this run's games
+        # and everything already in it. This is what keeps a run from washing out what the policy
+        # being trained already knew.
+        if fit_steps > 0 and len(agent.replay) > 0:
+            original_lr = agent.net.lr
+            agent.net.lr = original_lr * lr_scale
+            try:
+                for step in range(fit_steps):
+                    batch = agent.replay.sample(batch_size, prioritized=True)
+                    if not batch:
+                        break
+                    losses.append(agent.train_on(batch, epochs=1, batch_size=batch_size))
+                    if report and (step + 1) % every == 0:
+                        self.stdout.write(
+                            f"  fit {step + 1:>5}/{fit_steps}  loss {losses[-1]:>10.5f}"
+                        )
+            finally:
+                agent.net.lr = original_lr
+
         elapsed = time.monotonic() - started
-        mean_loss = float(np.mean(losses)) if losses else 0.0
+        mean_loss = float(np.mean([l for l in losses if l]) or 0.0) if losses else 0.0
 
         after = None
         if options["evaluate"]:
@@ -178,6 +247,8 @@ class Command(BaseCommand):
                 "curriculum": curriculum,
                 "use_book": use_book,
                 "saved": saved,
+                "fit_steps": fit_steps,
+                "lr_scale": lr_scale,
             }
             if before and after:
                 detail["evaluation"] = {"before": before, "after": after}
