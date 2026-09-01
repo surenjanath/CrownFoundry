@@ -15,13 +15,14 @@ import com.surenjanath.crownfoundry.BuildConfig
  * carries the app id, because a build where that is not true does not contain this file.
  *
  * Play Games is the right home for this in an app that has no accounts and no server. It supplies
- * the identity, the leaderboard UI, and the only defence against a tampered score that a
- * client-computed board can have. What the app never gets is the scores themselves: they are read
- * in Google's own UI, which is why [show] hands off to an activity rather than returning a list.
+ * the identity, the leaderboard and achievement UI, and the only defence against a tampered score
+ * that a client-computed board can have. What the app never gets is other people's scores: those
+ * are read in Google's own UI, which is why [show] hands off to an activity rather than returning
+ * a list.
  *
  * Sign-in is Play Games' own: v2 signs the player in at launch and there is no button for it. A
  * player who declines, or who has no Play Games profile, simply leaves [available] false, and the
- * app hides the entry point rather than nagging.
+ * app hides the entry points rather than nagging.
  */
 class PlayGamesLeaderboards(private val context: Context) : LeaderboardService {
 
@@ -31,23 +32,14 @@ class PlayGamesLeaderboards(private val context: Context) : LeaderboardService {
     override val available: Boolean get() = signedIn
 
     /**
-     * Board ids from the Play Console, keyed by [Leaderboard.key].
+     * Console ids, keyed by [Leaderboard.key] and [Achievement.key].
      *
-     * They are opaque strings of the form `CgkI…`, they differ per application, and they are not
-     * secret - they identify a board, they do not authorise writing to it. Set through
-     * `crownfoundry.playGamesLeaderboards` as `wins:CgkI…,streak:CgkI…,puzzles:CgkI…`.
+     * Opaque `CgkI…` strings that differ per application. They are not secret - they identify a
+     * board or an achievement, they do not authorise writing to one - which is why they can sit in
+     * `gradle.properties` and ship inside the APK.
      */
-    private val boardIds: Map<String, String> = BuildConfig.PLAY_GAMES_LEADERBOARDS
-        .split(',')
-        .mapNotNull { entry ->
-            val parts = entry.split(':', limit = 2)
-            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
-                parts[0].trim() to parts[1].trim()
-            } else {
-                null
-            }
-        }
-        .toMap()
+    private val boardIds = parseIds(BuildConfig.PLAY_GAMES_LEADERBOARDS)
+    private val achievementIds = parseIds(BuildConfig.PLAY_GAMES_ACHIEVEMENTS)
 
     fun start() {
         PlayGamesSdk.initialize(context)
@@ -58,14 +50,23 @@ class PlayGamesLeaderboards(private val context: Context) : LeaderboardService {
     }
 
     override fun submit(board: Leaderboard, score: Int) {
-        if (!signedIn) return
         val id = boardIds[board.key] ?: return
-        try {
-            PlayGames.getLeaderboardsClient(context as Activity)
-                .submitScore(id, score.toLong())
-        } catch (failure: Exception) {
-            // A leaderboard that will not accept a score is not a reason to interrupt a game.
-            Log.w(TAG, "could not submit ${board.key}", failure)
+        guard("submit ${board.key}") {
+            PlayGames.getLeaderboardsClient(context as Activity).submitScore(id, score.toLong())
+        }
+    }
+
+    override fun award(achievement: Achievement, unlocked: Boolean, progress: Int) {
+        val id = achievementIds[achievement.key] ?: return
+        guard("award ${achievement.key}") {
+            val client = PlayGames.getAchievementsClient(context as Activity)
+            when {
+                unlocked -> client.unlock(id)
+                // `setSteps` is absolute rather than incremental, which is what a recount over the
+                // whole corpus needs: `increment` would double-count every time the app recounted.
+                achievement.incremental && progress > 0 ->
+                    client.setSteps(id, progress.coerceAtMost(achievement.target))
+            }
         }
     }
 
@@ -78,6 +79,34 @@ class PlayGamesLeaderboards(private val context: Context) : LeaderboardService {
 
         intent.addOnSuccessListener { activity.startActivityForResult(it, REQUEST_CODE) }
     }
+
+    override fun showAchievements(activity: Activity) {
+        if (!signedIn) return
+        PlayGames.getAchievementsClient(activity).achievementsIntent
+            .addOnSuccessListener { activity.startActivityForResult(it, REQUEST_CODE) }
+    }
+
+    /** Nothing posted to Play Games is worth interrupting a game over. */
+    private inline fun guard(what: String, block: () -> Unit) {
+        if (!signedIn) return
+        try {
+            block()
+        } catch (failure: Exception) {
+            Log.w(TAG, "could not $what", failure)
+        }
+    }
+
+    private fun parseIds(configured: String): Map<String, String> = configured
+        .split(',')
+        .mapNotNull { entry ->
+            val parts = entry.split(':', limit = 2)
+            if (parts.size == 2 && parts[0].isNotBlank() && parts[1].isNotBlank()) {
+                parts[0].trim() to parts[1].trim()
+            } else {
+                null
+            }
+        }
+        .toMap()
 
     private companion object {
         const val TAG = "CrownFoundry.Games"

@@ -92,7 +92,7 @@ class OfflineCheckersApi(
             engineVersion = engine.state.header?.serverVersion ?: 0
         )
         return Outcome.Success(envelope(match, boardOf(match)).copy(
-            initialBoard = Board.initial(rules.toEngineRules()).toFen()
+            initialBoard = startOf(match).toFen()
         ))
     }
 
@@ -112,14 +112,48 @@ class OfflineCheckersApi(
         )
         return Outcome.Success(
             envelope(match, boardOf(match)).copy(
-                initialBoard = Board.initial(rules.toEngineRules()).toFen()
+                initialBoard = startOf(match).toFen()
             )
+        )
+    }
+
+    /**
+     * Start, or resume, the challenge for [key].
+     *
+     * Resuming rather than restarting is the point: one attempt per day, so closing the app
+     * mid-game and coming back does not hand out a second try at a position you have already
+     * seen. A day that has been finished returns that finished game, and the caller shows the
+     * result instead of a board.
+     */
+    suspend fun startDaily(key: String = DailyChallenge.today()): Outcome<MatchDto> {
+        missingEngine()?.let { return Outcome.Failure(it) }
+
+        store.all().firstOrNull { it.daily == key }?.let { existing ->
+            return Outcome.Success(
+                envelope(existing, boardOf(existing), withHistory = true)
+                    .copy(initialBoard = startOf(existing).toFen())
+            )
+        }
+
+        val opening = DailyChallenge.positionFor(key)
+        val match = store.create(
+            difficulty = DailyChallenge.DIFFICULTY,
+            rules = DailyChallenge.RULES,
+            engineVersion = engine.state.header?.serverVersion ?: 0,
+            startFen = opening.toFen(),
+            daily = key
+        )
+        return Outcome.Success(
+            envelope(match, boardOf(match)).copy(initialBoard = opening.toFen())
         )
     }
 
     override suspend fun match(matchId: String): Outcome<MatchDto> {
         val match = store.find(matchId) ?: return notFound(matchId)
-        return Outcome.Success(envelope(match, boardOf(match), withHistory = true))
+        return Outcome.Success(
+            envelope(match, boardOf(match), withHistory = true)
+                .copy(initialBoard = startOf(match).toFen())
+        )
     }
 
     override suspend fun matches(playerId: String?, limit: Int): Outcome<MatchListDto> {
@@ -386,9 +420,26 @@ class OfflineCheckersApi(
 
     // --- internals ---------------------------------------------------------------------------
 
+    /**
+     * The position a match begins from: its stored one, or the opening.
+     *
+     * A daily challenge starts a few plies in, so "the opening" is not a safe assumption any
+     * more. An unreadable stored position falls back to the opening rather than throwing - the
+     * game is still playable, and refusing to open a match over a bad FEN would be worse.
+     */
+    private fun startOf(match: LocalMatch): Board {
+        val rules = match.rules.toEngineRules()
+        val fen = match.startFen ?: return Board.initial(rules)
+        return try {
+            Board.fromFen(fen, rules = rules)
+        } catch (failure: IllegalArgumentException) {
+            Board.initial(rules)
+        }
+    }
+
     /** Rebuild the live position from the move list. Cheap, and it cannot disagree with itself. */
     private fun boardOf(match: LocalMatch): Board {
-        var board = Board.initial(match.rules.toEngineRules())
+        var board = startOf(match)
         for (notation in match.moves) {
             board = board.apply(
                 try {
@@ -427,7 +478,7 @@ class OfflineCheckersApi(
         if (match.isPassAndPlay) return
         val aiSide = sideCode(Side.AI) ?: return
 
-        val plies = replayMoves(match.moves, match.rules.toEngineRules())
+        val plies = replayMoves(match.moves, match.rules.toEngineRules(), startOf(match))
         if (plies.isEmpty()) return
         val winner = when (match.winner) {
             Side.DRAW -> DRAW_RESULT
@@ -477,7 +528,7 @@ class OfflineCheckersApi(
     )
 
     private fun historyOf(match: LocalMatch): List<HistoryEntryDto> {
-        var board = Board.initial(match.rules.toEngineRules())
+        var board = startOf(match)
         var aiMoveIndex = 0
         return match.moves.mapIndexedNotNull { index, notation ->
             val move = try {

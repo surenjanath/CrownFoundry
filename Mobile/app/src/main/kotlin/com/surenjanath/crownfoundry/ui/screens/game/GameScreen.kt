@@ -100,8 +100,11 @@ const val ResignButtonTag = "resignButton"
  * network - and falls back to the ordinary route only in the window before offline mode is wired,
  * where no screen exists to ask.
  */
-private fun apiFor(mode: GameMode): CheckersApi =
-    if (mode.isPassAndPlay) Offline.passAndPlay ?: Offline.api else Offline.api
+private fun apiFor(mode: GameMode): CheckersApi = when {
+    mode.isPassAndPlay -> Offline.passAndPlay ?: Offline.api
+    mode.isDaily -> Offline.daily ?: Offline.api
+    else -> Offline.api
+}
 
 /**
  * The live board.
@@ -158,6 +161,11 @@ fun GameScreen(
             playerId = playerId.takeIf { it.isNotEmpty() },
             rules = rules,
             mode = mode,
+            opener = if (mode.isDaily) {
+                { Offline.daily?.startDaily() ?: Offline.api.startMatch("hard", null, null) }
+            } else {
+                null
+            },
             onMatchIdChanged = { id ->
                 resumeId = id
                 activeMatchId = id.orEmpty()

@@ -1,0 +1,142 @@
+name: Train the engine
+
+# Train the policy, and publish it only if it beats the one it would replace.
+#
+# The whole point is that this needs no laptop time and cannot ship a worse opponent. Every run
+# ends in one of two places: a commit that publishes a measurably better policy, or nothing at
+# all. There is no third outcome where something mediocre gets shipped because the job had
+# already spent twenty minutes and did not want to waste them.
+#
+# The gate is `ArtifactComparisonTest`, which plays the candidate against the current champion
+# from randomised openings. It is deliberately the same check a human would run by hand before
+# publishing - see the "Publishing a trained policy" section of the README.
+
+on:
+  schedule:
+    # 03:00 UTC. Nothing depends on the hour; it is simply out of the way.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      games:
+        description: "Self-play games to run"
+        required: false
+        default: "300"
+      publish:
+        description: "Publish if the gate passes"
+        type: boolean
+        required: false
+        default: true
+
+concurrency:
+  # Two runs would train from the same champion and race to publish different successors.
+  group: train-engine
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install backend dependencies
+        working-directory: Backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Load the published policy as the champion
+        working-directory: Backend
+        run: |
+          python manage.py migrate --no-input
+          # The database is not committed, so the artifact in the repo is the only copy of the
+          # policy this run should be building on. Without this the run would train from random
+          # weights and the gate would - correctly - throw the result away every night.
+          python manage.py import_engine --in ../Mobile/app/src/main/assets/policy.cfe
+
+      - name: Train
+        working-directory: Backend
+        env:
+          GAMES: ${{ inputs.games || '300' }}
+        run: |
+          python manage.py train_selfplay \
+            --games "$GAMES" \
+            --evaluate --eval-games 30 \
+            --report --report-every 50
+
+      - name: Export the candidate
+        working-directory: Backend
+        run: python manage.py export_engine --out "$RUNNER_TEMP/candidate.cfe"
+
+      - name: Compare it against the policy it would replace
+        id: gate
+        working-directory: Mobile
+        run: |
+          set -o pipefail
+          ./gradlew :engine:testDebugUnitTest --tests '*ArtifactComparisonTest*' \
+            --rerun-tasks --console=plain \
+            -Pcrownfoundry.champion=app/src/main/assets/policy.cfe \
+            -Pcrownfoundry.candidate="$RUNNER_TEMP/candidate.cfe" \
+            -Pcrownfoundry.compareGames=60 | tee "$RUNNER_TEMP/gate.txt"
+
+          # The comparison reports rather than fails, so the verdict is read from its output.
+          # `grep -q` on the exact verdict line, not on the word "PUBLISH", which also appears in
+          # "DO NOT PUBLISH".
+          if grep -qE "^[[:space:]]*PUBLISH - " "$RUNNER_TEMP/gate.txt"; then
+            echo "verdict=publish" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict=hold" >> "$GITHUB_OUTPUT"
+          fi
+
+          {
+            echo "### Engine training"
+            echo
+            echo '```'
+            grep -E "champion |candidate |head-to-head|baseline|PUBLISH" "$RUNNER_TEMP/gate.txt" || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # `inputs` is empty on a schedule, where every field reads as falsy - so the checkbox is
+      # only consulted when there was a checkbox to tick.
+      - name: Publish
+        if: >-
+          steps.gate.outputs.verdict == 'publish' &&
+          (github.event_name != 'workflow_dispatch' || inputs.publish)
+        run: |
+          cp "$RUNNER_TEMP/candidate.cfe" docs/engine/policy.cfe
+          python tools/publish_engine.py docs/engine/policy.cfe
+          rm docs/engine/policy.cfe
+
+          version=$(python -c "import json;print(json.load(open('docs/engine/manifest.json'))['version'])")
+          # By name, not by glob: published versions accumulate in this directory, and
+          # `policy-v*.cfe` would stop meaning one file the first time a second one landed.
+          cp "docs/engine/policy-v${version}.cfe" Mobile/app/src/main/assets/policy.cfe
+
+          summary=$(grep -E "head-to-head|baseline" "$RUNNER_TEMP/gate.txt" | sed 's/^ *//')
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/engine Mobile/app/src/main/assets/policy.cfe
+          git commit -m "engine: publish v${version}" -m "$summary"
+          git push
+
+      - name: Report a run that changed nothing
+        if: steps.gate.outputs.verdict != 'publish'
+        run: |
+          echo "The candidate did not beat the current policy, so nothing was published." \
+            >> "$GITHUB_STEP_SUMMARY"

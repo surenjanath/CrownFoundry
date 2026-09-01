@@ -68,7 +68,41 @@ val playGamesAppId: String = (project.findProperty("crownfoundry.playGamesAppId"
 val playGamesLeaderboards: String =
     (project.findProperty("crownfoundry.playGamesLeaderboards") as String?)?.trim().orEmpty()
 
+val playGamesAchievements: String =
+    (project.findProperty("crownfoundry.playGamesAchievements") as String?)?.trim().orEmpty()
+
 val playGamesConfigured = playGamesAppId.isNotEmpty()
+
+/**
+ * Reject a configuration that would post two things to one board.
+ *
+ * The ids are opaque `CgkI…` strings that differ only in their last characters, and they are
+ * matched by the key on the left of each colon - so a copy-paste that repeats an id does not fail,
+ * it silently posts one board's scores into another's. Caught here because there is no later point
+ * at which it looks wrong.
+ */
+fun checkPlayGamesIds(label: String, configured: String) {
+    val entries = configured.split(',').filter { it.isNotBlank() }.map {
+        val parts = it.split(':', limit = 2)
+        require(parts.size == 2 && parts.all(String::isNotBlank)) {
+            "crownfoundry.$label has an entry that is not `key:id`: '$it'"
+        }
+        parts[0].trim() to parts[1].trim()
+    }
+    entries.groupBy { it.second }.filterValues { it.size > 1 }.forEach { (id, sharing) ->
+        throw GradleException(
+            "crownfoundry.$label points ${sharing.map { it.first }} at the same id $id"
+        )
+    }
+    entries.groupBy { it.first }.filterValues { it.size > 1 }.forEach { (key, _) ->
+        throw GradleException("crownfoundry.$label configures '$key' more than once")
+    }
+}
+
+if (playGamesConfigured) {
+    checkPlayGamesIds("playGamesLeaderboards", playGamesLeaderboards)
+    checkPlayGamesIds("playGamesAchievements", playGamesAchievements)
+}
 
 fun backendUrlFor(buildType: String): String =
     configuredBackendUrl ?: emulatorBackendUrl
@@ -143,6 +177,7 @@ android {
             buildConfigField("String", "DEFAULT_BACKEND_URL", "\"${backendUrlFor("debug")}\"")
             buildConfigField("String", "PUBLISHED_ENGINE_URL", "\"$publishedEngineUrl\"")
             buildConfigField("String", "PLAY_GAMES_LEADERBOARDS", "\"$playGamesLeaderboards\"")
+            buildConfigField("String", "PLAY_GAMES_ACHIEVEMENTS", "\"$playGamesAchievements\"")
             resValue("string", "play_games_app_id", playGamesAppId)
         }
 
@@ -155,6 +190,7 @@ android {
             buildConfigField("String", "DEFAULT_BACKEND_URL", "\"${backendUrlFor("release")}\"")
             buildConfigField("String", "PUBLISHED_ENGINE_URL", "\"$publishedEngineUrl\"")
             buildConfigField("String", "PLAY_GAMES_LEADERBOARDS", "\"$playGamesLeaderboards\"")
+            buildConfigField("String", "PLAY_GAMES_ACHIEVEMENTS", "\"$playGamesAchievements\"")
             resValue("string", "play_games_app_id", playGamesAppId)
 
             // Play warns that this bundle carries native code with no debug symbols. The only .so

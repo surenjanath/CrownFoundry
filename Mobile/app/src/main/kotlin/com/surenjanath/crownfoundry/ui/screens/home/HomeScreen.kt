@@ -24,6 +24,7 @@ import com.surenjanath.crownfoundry.ui.screens.puzzles.PuzzleScreen
 import com.surenjanath.crownfoundry.ui.screens.puzzles.PuzzlesScreen
 import com.surenjanath.crownfoundry.ui.screens.reviewRoute
 import com.surenjanath.crownfoundry.ui.screens.settings.SettingsScreen
+import com.surenjanath.crownfoundry.ui.screens.dailyRoute
 import com.surenjanath.crownfoundry.ui.screens.settingsRoute
 import com.surenjanath.crownfoundry.ui.screens.training.TrainingScreen
 import com.surenjanath.crownfoundry.ui.screens.trainingRoute
@@ -90,6 +91,7 @@ fun HomeScreen() {
                         0 -> PlayScreen(
                             onPlay = { matchId -> gameRoute.global(matchId, false) },
                             onPassAndPlay = { gameRoute.global(null, true) },
+                            onDaily = { dailyRoute.global() },
                             onResume = { matchId, passAndPlay ->
                                 gameRoute.global(matchId, passAndPlay)
                             },

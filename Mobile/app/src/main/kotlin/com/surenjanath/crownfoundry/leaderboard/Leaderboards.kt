@@ -28,8 +28,20 @@ interface LeaderboardService {
     /** Post [score] to [board]. Silently does nothing when unavailable. */
     fun submit(board: Leaderboard, score: Int)
 
+    /**
+     * Mark [achievement] as earned, or report how far along it is.
+     *
+     * [progress] is the counter's current value for an achievement with a target, and ignored for
+     * a one-off. Posting one that is already unlocked is expected and harmless - the recount runs
+     * over the whole corpus every time, so it re-posts everything true.
+     */
+    fun award(achievement: Achievement, unlocked: Boolean, progress: Int)
+
     /** Open the platform's own leaderboard UI, which is the only place scores are read. */
     fun show(activity: Activity, board: Leaderboard?)
+
+    /** Open the platform's achievements UI. */
+    fun showAchievements(activity: Activity)
 }
 
 /**
@@ -97,7 +109,21 @@ object Leaderboards {
      */
     fun submitAll(scores: LeaderboardScores) {
         val target = service?.takeIf { it.available } ?: return
-        for (board in Leaderboard.entries) target.submit(board, scores[board])
+        for (board in Leaderboard.entries) {
+            if (scores.isPostable(board)) target.submit(board, scores[board])
+        }
+    }
+
+    /** Post every achievement's state. See [LeaderboardService.award] for why all of them. */
+    fun awardAll(state: AchievementState) {
+        val target = service?.takeIf { it.available } ?: return
+        for (achievement in Achievement.entries) {
+            target.award(achievement, achievement in state, state.progressOf(achievement))
+        }
+    }
+
+    fun showAchievements(activity: Activity) {
+        service?.takeIf { it.available }?.showAchievements(activity)
     }
 
     fun show(activity: Activity, board: Leaderboard? = null) {

@@ -17,6 +17,9 @@ import com.surenjanath.crownfoundry.ui.screens.game.GameScreen
  */
 val gameRoute = Route2<String?, Boolean>("gameRoute")
 
+/** Today's challenge: one seeded position, the same for everybody, one attempt. */
+val dailyRoute = Route0("dailyRoute")
+
 /** A finished match, replayed ply by ply. */
 val reviewRoute = Route1<String>("reviewRoute")
 
@@ -39,5 +42,9 @@ inline fun RouteHandlerScope.globalRoutes() {
             matchId = matchId,
             mode = if (passAndPlay) GameMode.PassAndPlay else GameMode.VersusEngine
         )
+    }
+
+    dailyRoute {
+        GameScreen(matchId = null, mode = GameMode.Daily)
     }
 }

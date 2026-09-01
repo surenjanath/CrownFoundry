@@ -10,6 +10,7 @@ import com.surenjanath.crownfoundry.api.ApiError
 import com.surenjanath.crownfoundry.api.BoardDto
 import com.surenjanath.crownfoundry.api.CheckersApi
 import com.surenjanath.crownfoundry.api.EvaluationDto
+import com.surenjanath.crownfoundry.api.MatchDto
 import com.surenjanath.crownfoundry.api.MatchRulesDto
 import com.surenjanath.crownfoundry.api.MoveDto
 import com.surenjanath.crownfoundry.api.Outcome
@@ -56,9 +57,19 @@ enum class RetryAction { None, Begin, AiTurn }
  */
 enum class GameMode {
     VersusEngine,
-    PassAndPlay;
+    PassAndPlay,
+
+    /**
+     * The one position everybody gets today.
+     *
+     * Refereed on the device whatever the routing would otherwise do, because the challenge is
+     * derived from the date and a server has never heard of it - see [Offline.daily].
+     */
+    Daily;
 
     val isPassAndPlay get() = this == PassAndPlay
+
+    val isDaily get() = this == Daily
 }
 
 @Immutable
@@ -104,6 +115,14 @@ class GameState(
     val rules: MatchRulesDto? = null,
     val mode: GameMode = GameMode.VersusEngine,
     private val hinter: Hinter = EngineHinter,
+    /**
+     * How a fresh match is started, when it is not simply `startMatch`.
+     *
+     * The daily challenge begins from a seeded position rather than the opening, which is not
+     * something [com.surenjanath.crownfoundry.api.CheckersApi] can express - so the caller hands
+     * over the opener instead of this class growing a mode switch.
+     */
+    private val opener: (suspend () -> Outcome<MatchDto>)? = null,
     private val onMatchIdChanged: (String?) -> Unit = {}
 ) {
     var matchId by mutableStateOf<String?>(null)
@@ -202,9 +221,11 @@ class GameState(
         phase = GamePhase.Loading
         failure = null
 
-        val outcome =
-            if (existingMatchId != null) api.match(existingMatchId)
-            else api.startMatch(difficulty, playerId, rules)
+        val outcome = when {
+            existingMatchId != null -> api.match(existingMatchId)
+            opener != null -> opener.invoke()
+            else -> api.startMatch(difficulty, playerId, rules)
+        }
 
         when (outcome) {
             is Outcome.Success -> {

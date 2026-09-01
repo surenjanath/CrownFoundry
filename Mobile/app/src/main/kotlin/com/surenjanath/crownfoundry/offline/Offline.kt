@@ -6,6 +6,7 @@ import com.surenjanath.crownfoundry.api.CrownFoundryClient
 import com.surenjanath.crownfoundry.api.EngineApi
 import com.surenjanath.crownfoundry.api.PublishedEngineApi
 import com.surenjanath.crownfoundry.leaderboard.Leaderboards
+import com.surenjanath.crownfoundry.leaderboard.achievementsOf
 import com.surenjanath.crownfoundry.leaderboard.scoresOf
 import com.surenjanath.crownfoundry.utils.backendUrlKey
 import com.surenjanath.crownfoundry.utils.effectiveBackendUrl
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 object Offline {
 
     private var hybrid: HybridCheckersApi? = null
+    private var offlineApi: OfflineCheckersApi? = null
     private var passAndPlayApi: PassAndPlayApi? = null
     private var sync: EngineSync? = null
     private var store: LocalMatchStore? = null
@@ -85,6 +87,15 @@ object Offline {
     /** The positions the player got wrong, collected when a game is reviewed. */
     val puzzles: PuzzleStore? get() = puzzleStore
 
+    /**
+     * The referee for the daily challenge.
+     *
+     * Always the on-device one, whatever the routing would otherwise do. The challenge is derived
+     * from the date and refereed here; handing it to a server that has never heard of it would
+     * start an ordinary game from the opening instead.
+     */
+    val daily: OfflineCheckersApi? get() = offlineApi
+
     val settings: EnginePreferences? get() = preferences
 
     fun initialise(context: Context) {
@@ -101,6 +112,7 @@ object Offline {
         )
 
         preferences = enginePreferences
+        offlineApi = offline
         store = matchStore
         puzzleStore = PuzzleStore(context)
         passAndPlayApi = PassAndPlayApi(offline)
@@ -190,9 +202,9 @@ object Offline {
         val matchStore = store ?: return
         scope.launch {
             runCatching {
-                Leaderboards.submitAll(
-                    scoresOf(matchStore.all(), puzzleStore?.all().orEmpty())
-                )
+                val scores = scoresOf(matchStore.all(), puzzleStore?.all().orEmpty())
+                Leaderboards.submitAll(scores)
+                Leaderboards.awardAll(achievementsOf(scores, EngineStore.state.header))
             }
         }
     }

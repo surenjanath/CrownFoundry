@@ -41,6 +41,7 @@ import com.surenjanath.crownfoundry.api.AnalyticsSummaryDto
 import com.surenjanath.crownfoundry.api.ApiError
 import com.surenjanath.crownfoundry.api.CheckersApi
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
+import com.surenjanath.crownfoundry.offline.DailyChallenge
 import com.surenjanath.crownfoundry.offline.Offline
 import com.surenjanath.crownfoundry.api.HealthDto
 import com.surenjanath.crownfoundry.api.Outcome
@@ -79,6 +80,7 @@ import kotlinx.coroutines.launch
 fun PlayScreen(
     onPlay: (String?) -> Unit,
     onPassAndPlay: () -> Unit,
+    onDaily: () -> Unit,
     onResume: (String, Boolean) -> Unit,
     onSeeInsights: () -> Unit
 ) {
@@ -89,6 +91,7 @@ fun PlayScreen(
     val activeMatchPassAndPlay by rememberPreference(activeMatchPassAndPlayKey, false)
     val backendUrl by rememberPreference(backendUrlKey, defaultBackendUrl)
 
+    var daily by remember { mutableStateOf(DailyChallenge.Status(key = DailyChallenge.today())) }
     var attempt by remember { mutableIntStateOf(0) }
     val holder = remember { PlayStateHolder(Offline.api) }
     val scope = rememberCoroutineScope()
@@ -104,6 +107,9 @@ fun PlayScreen(
         // and self-play moves these numbers without the reader touching anything.
         while (true) {
             holder.refresh()
+            // Recomputed on the same poll: finishing today's challenge in another screen should
+            // be reflected here without the player having to come back twice.
+            daily = DailyChallenge.statusOf(Offline.matches?.all().orEmpty())
             delay(POLL_INTERVAL_MILLIS)
         }
     }
@@ -152,6 +158,47 @@ fun PlayScreen(
                 BasicText(
                     text = "You are Black and you move first.",
                     style = typography.xs.secondary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !daily.isPlayed) { onDaily() }
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            SecondaryButton(
+                onClick = onDaily,
+                iconId = R.drawable.trophy,
+                enabled = !daily.isPlayed
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                BasicText(
+                    text = daily.headline,
+                    style = typography.xs.semiBold
+                )
+
+                BasicText(
+                    text = buildString {
+                        append(
+                            when {
+                                daily.isWon -> "Come back tomorrow for a new one."
+                                daily.isPlayed -> "One attempt a day. A new position tomorrow."
+                                daily.isInProgress -> "Pick it up where you left it."
+                                else -> "The same position for everyone today, played at Hard."
+                            }
+                        )
+                        if (daily.streak > 0) {
+                            append("  ${daily.streak}-day streak.")
+                        }
+                    },
+                    style = typography.xxs.secondary
                 )
             }
         }

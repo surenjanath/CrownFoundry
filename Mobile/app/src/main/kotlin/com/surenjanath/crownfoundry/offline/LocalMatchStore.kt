@@ -53,7 +53,20 @@ data class LocalMatch(
      * Who was sitting on the other side. Defaults to the engine so every game stored before
      * pass-and-play existed still reads as what it was.
      */
-    val mode: String = MODE_ENGINE
+    val mode: String = MODE_ENGINE,
+    /**
+     * The position the move list starts from, or `null` for the opening.
+     *
+     * Stored rather than assumed because a game that did not start from the opening replays
+     * against the wrong board otherwise - the review would report every move as a blunder, and
+     * training would fit the policy to positions nobody played.
+     */
+    val startFen: String? = null,
+    /**
+     * The daily challenge this game is an attempt at, as `2026-09-01`, or `null` for an
+     * ordinary game. Everyone gets the same position on the same date.
+     */
+    val daily: String? = null
 ) {
     val isFinished get() = winner != null
     val isActive get() = winner == null
@@ -63,6 +76,8 @@ data class LocalMatch(
      * not training data, not an opponent model, and not a result to judge the engine by.
      */
     val isPassAndPlay get() = mode == MODE_PASS
+
+    val isDaily get() = daily != null
 
     companion object {
         const val MODE_ENGINE = "engine"
@@ -174,7 +189,9 @@ class LocalMatchStore(private val file: File) {
         difficulty: String,
         rules: MatchRulesDto?,
         engineVersion: Int,
-        mode: String = LocalMatch.MODE_ENGINE
+        mode: String = LocalMatch.MODE_ENGINE,
+        startFen: String? = null,
+        daily: String? = null
     ): LocalMatch = mutate { current ->
         val id = UUID.randomUUID().toString()
         val match = LocalMatch(
@@ -184,7 +201,9 @@ class LocalMatchStore(private val file: File) {
             rules = rules,
             startedAt = System.currentTimeMillis(),
             engineVersion = engineVersion,
-            mode = mode
+            mode = mode,
+            startFen = startFen,
+            daily = daily
         )
         current.copy(matches = (current.matches + match).takeNewest()) to match
     }
