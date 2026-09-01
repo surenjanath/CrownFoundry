@@ -153,8 +153,8 @@ android {
         // Google Play requires new apps and updates to target API 35 today, and API 36 from
         // 31 Aug 2026. Targeting 36 satisfies both.
         targetSdk = 36
-        versionCode = 6
-        versionName = "1.5.0"
+        versionCode = 7
+        versionName = "1.6.0"
     }
 
     namespace = "com.surenjanath.crownfoundry"
