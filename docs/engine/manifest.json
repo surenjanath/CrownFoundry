@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "format": 1,
+  "version": 43,
+  "architecture": "148-128-64-1",
+  "feature_size": 148,
+  "elo": 1140,
+  "games_trained": 6906,
+  "last_loss": 4.9362223604763935,
+  "size_bytes": 109961,
+  "checksum": "63a7664a01ebdc1876af0a0a4597113f507b0469545be5144471bc5357375def",
+  "created_at": "2026-09-01T01:33:23.384482+00:00",
+  "notes": "self-play curriculum 200 games depth=6",
+  "url": "https://surenjanath.github.io/CrownFoundry/engine/policy-v43.cfe"
+}
