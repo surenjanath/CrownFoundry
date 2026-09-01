@@ -14,9 +14,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.surenjanath.crownfoundry.LocalWindowInsets
+import com.surenjanath.crownfoundry.enums.BoardStyle
 import com.surenjanath.crownfoundry.enums.Difficulty
 import com.surenjanath.crownfoundry.ui.components.themed.Header
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
+import com.surenjanath.crownfoundry.utils.boardStyleKey
 import com.surenjanath.crownfoundry.utils.difficultyKey
 import com.surenjanath.crownfoundry.utils.hapticFeedbackKey
 import com.surenjanath.crownfoundry.utils.rememberPreference
@@ -29,6 +31,7 @@ fun GameSettings() {
     val (colorPalette) = LocalAppearance.current
 
     var difficulty by rememberPreference(difficultyKey, Difficulty.Adaptive)
+    var boardStyle by rememberPreference(boardStyleKey, BoardStyle.Classic)
     var showLegalMoves by rememberPreference(showLegalMovesKey, true)
     var showReasoning by rememberPreference(showReasoningKey, true)
     var showEvaluation by rememberPreference(showEvaluationKey, false)
@@ -67,6 +70,15 @@ fun GameSettings() {
         SettingsGroupSpacer()
 
         SettingsEntryGroupText(title = "THE BOARD")
+
+        EnumValueSelectorSettingsEntry(
+            title = "Board style",
+            selectedValue = boardStyle,
+            onValueSelected = { boardStyle = it },
+            valueText = { it.label }
+        )
+
+        SettingsDescription(text = boardStyle.description)
 
         SwitchSettingEntry(
             title = "Show legal moves",

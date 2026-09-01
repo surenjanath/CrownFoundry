@@ -36,6 +36,40 @@ val configuredBackendUrl: String? = (project.findProperty("crownfoundry.backendU
 
 val emulatorBackendUrl = "http://10.0.2.2:8000"
 
+/**
+ * Where the published engine manifest lives, for builds with no referee to ask.
+ *
+ * Set with `crownfoundry.engineManifestUrl` in `gradle.properties` or `-P` on the command line.
+ * `none` - the default - ships a build that never looks for an update, which is what every build
+ * before this one did. See `tools/publish_engine.py`, which writes the manifest this reads.
+ */
+val publishedEngineUrl: String = (project.findProperty("crownfoundry.engineManifestUrl") as String?)
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
+    ?: "none"
+
+/**
+ * The Play Games application id, from the Play Console, or empty for a build without leaderboards.
+ *
+ * This one cannot be a runtime flag. The Play Games SDK installs a startup provider that reads
+ * `com.google.android.gms.games.APP_ID` out of the manifest and throws if it is missing, so a
+ * build that carries the dependency without an id crashes before the first frame. The dependency
+ * and the code that uses it are therefore added together, only when an id is configured, and a
+ * build without one contains no Games code at all.
+ *
+ *     ./gradlew :app:bundleRelease \
+ *       -Pcrownfoundry.playGamesAppId=123456789012 \
+ *       -Pcrownfoundry.playGamesLeaderboards=wins:CgkI…,streak:CgkI…,puzzles:CgkI…
+ */
+val playGamesAppId: String = (project.findProperty("crownfoundry.playGamesAppId") as String?)
+    ?.trim()
+    .orEmpty()
+
+val playGamesLeaderboards: String =
+    (project.findProperty("crownfoundry.playGamesLeaderboards") as String?)?.trim().orEmpty()
+
+val playGamesConfigured = playGamesAppId.isNotEmpty()
+
 fun backendUrlFor(buildType: String): String =
     configuredBackendUrl ?: emulatorBackendUrl
 
@@ -85,8 +119,8 @@ android {
         // Google Play requires new apps and updates to target API 35 today, and API 36 from
         // 31 Aug 2026. Targeting 36 satisfies both.
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.4.0"
+        versionCode = 6
+        versionName = "1.5.0"
     }
 
     namespace = "com.surenjanath.crownfoundry"
@@ -107,6 +141,9 @@ android {
             applicationIdSuffix = ".debug"
             manifestPlaceholders["appName"] = "CrownFoundry Debug"
             buildConfigField("String", "DEFAULT_BACKEND_URL", "\"${backendUrlFor("debug")}\"")
+            buildConfigField("String", "PUBLISHED_ENGINE_URL", "\"$publishedEngineUrl\"")
+            buildConfigField("String", "PLAY_GAMES_LEADERBOARDS", "\"$playGamesLeaderboards\"")
+            resValue("string", "play_games_app_id", playGamesAppId)
         }
 
         release {
@@ -116,6 +153,9 @@ android {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "DEFAULT_BACKEND_URL", "\"${backendUrlFor("release")}\"")
+            buildConfigField("String", "PUBLISHED_ENGINE_URL", "\"$publishedEngineUrl\"")
+            buildConfigField("String", "PLAY_GAMES_LEADERBOARDS", "\"$playGamesLeaderboards\"")
+            resValue("string", "play_games_app_id", playGamesAppId)
 
             // Play warns that this bundle carries native code with no debug symbols. The only .so
             // in it is androidx.graphics.path, pulled in transitively by Compose, and AndroidX
@@ -128,6 +168,12 @@ android {
 
     sourceSets.all {
         kotlin.srcDir("src/$name/kotlin")
+    }
+
+    // Compiled into `main` rather than being a product flavour: it is the same app either way,
+    // and a flavour would double every build task to express one absent dependency.
+    if (playGamesConfigured) {
+        sourceSets.getByName("main").kotlin.srcDir("src/playgames/kotlin")
     }
 
     buildFeatures {
@@ -168,6 +214,8 @@ dependencies {
     implementation(libs.compose.ui.util)
     implementation(libs.compose.ripple)
     implementation(libs.compose.shimmer)
+
+    if (playGamesConfigured) implementation(libs.play.games)
 
     coreLibraryDesugaring(libs.desugaring)
 

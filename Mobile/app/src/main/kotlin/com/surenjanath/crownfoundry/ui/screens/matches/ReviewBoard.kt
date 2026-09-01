@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.surenjanath.crownfoundry.api.PieceDto
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
+import com.surenjanath.crownfoundry.ui.styling.rememberBoardColors
 
 /**
  * The board as it stood, drawn from a parsed FEN and nothing else - no taps, no legal moves, no
@@ -30,6 +31,9 @@ fun ReviewBoard(
     highlightedSquares: List<Int> = emptyList()
 ) {
     val (colorPalette) = LocalAppearance.current
+    // The same squares the live board uses, so a position under review looks like the position
+    // that was played rather than like a different app's screenshot.
+    val board = rememberBoardColors()
 
     Canvas(
         modifier = modifier
@@ -44,7 +48,7 @@ fun ReviewBoard(
                 val (x, y) = flipped(row, col, side)
 
                 drawRect(
-                    color = if (playable) colorPalette.background2 else colorPalette.background1,
+                    color = if (playable) board.dark else board.light,
                     topLeft = Offset(x, y),
                     size = Size(side, side)
                 )
@@ -57,7 +61,7 @@ fun ReviewBoard(
             val (x, y) = flipped(Fen.rowOf(square), Fen.colOf(square), side)
 
             drawRect(
-                color = colorPalette.accent.copy(alpha = 0.25f),
+                color = board.marker.copy(alpha = 0.25f),
                 topLeft = Offset(x, y),
                 size = Size(side, side)
             )

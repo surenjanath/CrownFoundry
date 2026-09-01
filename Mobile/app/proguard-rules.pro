@@ -32,3 +32,12 @@
 -dontwarn org.openjsse.javax.net.ssl.SSLSocket
 -dontwarn org.openjsse.net.ssl.OpenJSSE
 -dontwarn org.slf4j.impl.StaticLoggerBinder
+
+# The Play Games binding is looked up by name from `Leaderboards.initialise`, because it lives in
+# a source directory the build only adds when a Play Console app id was configured. R8 cannot see
+# a reflective reference, so without this the class is stripped from exactly the builds that have
+# leaderboards and kept out of the ones that do not need it either way.
+-keep class com.surenjanath.crownfoundry.leaderboard.PlayGamesLeaderboards {
+    <init>(android.content.Context);
+    public void start();
+}

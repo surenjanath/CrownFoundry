@@ -25,6 +25,9 @@ val puzzleRoute = Route1<String>("puzzleRoute")
 
 val settingsRoute = Route0("settingsRoute")
 
+/** The opponent practising against itself, with the guard that decides whether it counts. */
+val trainingRoute = Route0("trainingRoute")
+
 @SuppressLint("ComposableNaming")
 @Suppress("NOTHING_TO_INLINE")
 @ExperimentalAnimationApi

@@ -177,7 +177,10 @@ fun GameScreen(
     // either way this is when the device is most likely to be behind.
     LaunchedEffect(state.isOver) {
         // Pass-and-play produces nothing the server wants: no engine move, no training signal.
-        if (state.isOver && !mode.isPassAndPlay) Offline.synchroniseInBackground(playerId)
+        if (state.isOver && !mode.isPassAndPlay) {
+            Offline.synchroniseInBackground(playerId)
+            Offline.publishScores()
+        }
     }
 
     var confirmingResign by rememberSaveable { mutableStateOf(false) }

@@ -8,8 +8,12 @@ import androidx.compose.runtime.setValue
 import com.surenjanath.crownfoundry.engine.ArtifactException
 import com.surenjanath.crownfoundry.engine.EngineArtifact
 import com.surenjanath.crownfoundry.engine.EngineHeader
+import com.surenjanath.crownfoundry.engine.Curriculum
 import com.surenjanath.crownfoundry.engine.QNetwork
 import com.surenjanath.crownfoundry.engine.ReplayBuffer
+import com.surenjanath.crownfoundry.engine.SelfPlayProgress
+import com.surenjanath.crownfoundry.engine.SelfPlayReport
+import com.surenjanath.crownfoundry.engine.SelfPlayTrainer
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -326,6 +330,71 @@ object EngineStore {
                 Result.failure(failure)
             }
         }
+
+    /**
+     * Play [games] against itself and keep the result only if it plays better than what it
+     * replaces.
+     *
+     * Holds the store's lock for the whole session, which is what stops the game screen from
+     * searching with half-trained weights. That is safe here because a session is something the
+     * player started and is watching: [shouldContinue] is checked between games and between
+     * gradient steps, so leaving the screen returns the lock in well under a second.
+     *
+     * The weights are persisted only on an accepted session. A rejected one has already been
+     * rolled back in memory by the trainer, so there is nothing to write - but its games stay in
+     * the replay buffer, which is worth saving on its own: the next session gets to learn from
+     * them even though this one did not earn the right to.
+     */
+    suspend fun runSelfPlay(
+        games: Int,
+        preferences: EnginePreferences,
+        curriculum: Curriculum = Curriculum.Mixed,
+        onProgress: (SelfPlayProgress) -> Unit = {},
+        shouldContinue: () -> Boolean = { true }
+    ): SelfPlayReport? = mutex.withLock {
+        val dir = directory ?: return@withLock null
+        val net = network ?: return@withLock null
+        val buffer = replay ?: ReplayBuffer().also { replay = it }
+        val previous = state.header ?: return@withLock null
+
+        val report = withContext(Dispatchers.Default) {
+            SelfPlayTrainer(net, buffer, random = kotlin.random.Random.Default).run(
+                games = games,
+                curriculum = curriculum,
+                onProgress = onProgress,
+                shouldContinue = shouldContinue
+            )
+        }
+
+        val header = if (report.kept) {
+            previous.copy(
+                selfPlayGames = previous.selfPlayGames + report.gamesPlayed,
+                selfPlaySessions = previous.selfPlaySessions + 1,
+                localLoss = report.loss,
+                baseVersion = previous.serverVersion
+            )
+        } else {
+            previous
+        }
+
+        try {
+            withContext(Dispatchers.IO) {
+                if (report.kept) File(dir, ARTIFACT_NAME).writeBytes(EngineArtifact.write(net, header))
+                File(dir, REPLAY_NAME).writeBytes(buffer.toBytes())
+            }
+            if (report.kept) preferences.lastTrainedAt = System.currentTimeMillis()
+            state = state.copy(
+                header = header,
+                lastTrainedAt = preferences.lastTrainedAt,
+                message = null
+            )
+        } catch (failure: Exception) {
+            // The trained weights are live in memory either way; only the copy on disk is behind.
+            state = state.copy(message = "Could not save training (${failure.message}).")
+        }
+
+        report
+    }
 
     /** Persist the weights after on-device training, keeping the server version they came from. */
     suspend fun persistLocalTraining(

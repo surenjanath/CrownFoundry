@@ -13,6 +13,16 @@ import kotlinx.serialization.Serializable
  */
 interface EngineApi {
 
+    /**
+     * Whether this source can take the games the device refereed itself.
+     *
+     * False for an engine published as a static file, which has somewhere to serve a policy from
+     * and nowhere to put a game. [com.surenjanath.crownfoundry.offline.EngineSync] checks it
+     * rather than discovering the answer as a 405 on every launch, which would drain the outbox
+     * of games that were never going to be accepted.
+     */
+    val acceptsUploads: Boolean get() = true
+
     /** What the server's current policy is. Cheap enough to poll whenever the app comes forward. */
     suspend fun engineManifest(): Outcome<EngineManifestDto>
 

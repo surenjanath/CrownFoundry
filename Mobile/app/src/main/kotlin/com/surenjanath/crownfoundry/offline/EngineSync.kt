@@ -138,6 +138,14 @@ class EngineSync(
      * re-send the same broken game on every launch forever.
      */
     suspend fun uploadOutbox(playerId: String?): UploadResult {
+        // A published-file source has nowhere to put a game. Saying so here keeps the outbox
+        // intact for a device that is later pointed at a referee, instead of spending a request
+        // per launch learning the same 405.
+        if (!api.acceptsUploads) {
+            refreshPendingCount()
+            return UploadResult(remaining = matches.pendingUploads().size)
+        }
+
         val pending = matches.pendingUploads()
         if (pending.isEmpty()) {
             refreshPendingCount()

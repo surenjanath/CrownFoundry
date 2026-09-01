@@ -38,6 +38,7 @@ import com.surenjanath.crownfoundry.api.MoveDto
 import com.surenjanath.crownfoundry.api.PieceDto
 import com.surenjanath.crownfoundry.api.Side
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
+import com.surenjanath.crownfoundry.ui.styling.rememberBoardColors
 import kotlin.math.PI
 import kotlin.math.floor
 import kotlin.math.sin
@@ -97,6 +98,7 @@ fun CheckersBoard(
     onSquareTap: (Int) -> Unit = {}
 ) {
     val (colorPalette) = LocalAppearance.current
+    val board = rememberBoardColors()
 
     val crown = painterResource(R.drawable.crown)
 
@@ -136,6 +138,10 @@ fun CheckersBoard(
     val humanCrown = remember(colorPalette) { ColorFilter.tint(colorPalette.onAccent) }
     val opponentCrown = remember(colorPalette) { ColorFilter.tint(colorPalette.background0) }
     val shadow = Color.Black.copy(alpha = if (colorPalette.isDark) 0.35f else 0.18f)
+    // Every mark below sits on a playable square, so it is drawn in the board's marker colour
+    // rather than the raw accent - see BoardColors, which is what holds them apart.
+    val marker = board.marker
+    val threat = board.threat
 
     val description = remember(pieces, selection, hints) {
         boardDescription(pieces, selection, hints)
@@ -174,8 +180,7 @@ fun CheckersBoard(
             for (row in 0 until Squares.SIDE) {
                 for (col in 0 until Squares.SIDE) {
                     drawRect(
-                        color = if ((row + col) % 2 == 1) colorPalette.background2
-                        else colorPalette.background1,
+                        color = if ((row + col) % 2 == 1) board.dark else board.light,
                         topLeft = Offset(col * cell, row * cell),
                         size = Size(cell, cell)
                     )
@@ -189,7 +194,7 @@ fun CheckersBoard(
                 val to = squareCenter(advice.to, size.width)
 
                 drawLine(
-                    color = colorPalette.accent,
+                    color = marker,
                     start = from,
                     end = to,
                     strokeWidth = cell * 0.06f,
@@ -200,14 +205,14 @@ fun CheckersBoard(
                 )
 
                 drawCircle(
-                    color = colorPalette.accent,
+                    color = marker,
                     radius = radius * 0.95f,
                     center = from,
                     style = Stroke(width = cell * 0.055f)
                 )
 
                 drawCircle(
-                    color = colorPalette.accent,
+                    color = marker,
                     radius = radius * 0.42f,
                     center = to
                 )
@@ -218,14 +223,14 @@ fun CheckersBoard(
                 val to = squareCenter(trace.to, size.width)
 
                 drawLine(
-                    color = colorPalette.accent.copy(alpha = 0.16f),
+                    color = marker.copy(alpha = 0.16f),
                     start = from,
                     end = to,
                     strokeWidth = cell * 0.14f,
                     cap = StrokeCap.Round
                 )
                 drawCircle(
-                    color = colorPalette.accent.copy(alpha = 0.16f),
+                    color = marker.copy(alpha = 0.16f),
                     radius = radius * 0.5f,
                     center = from
                 )
@@ -234,8 +239,8 @@ fun CheckersBoard(
             if (showHints && selection == null) {
                 for (square in selectable) {
                     drawCircle(
-                        color = if (mustCapture) colorPalette.accent.copy(alpha = 0.55f)
-                        else colorPalette.accent.copy(alpha = 0.22f),
+                        color = if (mustCapture) marker.copy(alpha = 0.55f)
+                        else marker.copy(alpha = 0.22f),
                         radius = radius * 1.16f,
                         center = squareCenter(square, size.width),
                         style = ring
@@ -245,7 +250,7 @@ fun CheckersBoard(
 
             selection?.let {
                 drawCircle(
-                    color = colorPalette.accent,
+                    color = marker,
                     radius = radius * 1.16f,
                     center = squareCenter(it.square, size.width),
                     style = selectionRing
@@ -256,13 +261,13 @@ fun CheckersBoard(
                 for (square in hints) {
                     val center = squareCenter(square, size.width)
                     drawCircle(
-                        color = colorPalette.accent.copy(alpha = 0.25f),
+                        color = marker.copy(alpha = 0.25f),
                         radius = radius * 0.42f,
                         center = center
                     )
                     if (selection?.captureAt(square) != null) {
                         drawCircle(
-                            color = colorPalette.accent.copy(alpha = 0.25f),
+                            color = marker.copy(alpha = 0.25f),
                             radius = radius * 0.95f,
                             center = center,
                             style = ring
@@ -274,14 +279,14 @@ fun CheckersBoard(
                     val center = squareCenter(square, size.width)
                     val arm = radius * 0.62f
                     drawLine(
-                        color = colorPalette.red.copy(alpha = 0.75f),
+                        color = threat.copy(alpha = 0.75f),
                         start = Offset(center.x - arm, center.y - arm),
                         end = Offset(center.x + arm, center.y + arm),
                         strokeWidth = threatMark.width,
                         cap = StrokeCap.Round
                     )
                     drawLine(
-                        color = colorPalette.red.copy(alpha = 0.75f),
+                        color = threat.copy(alpha = 0.75f),
                         start = Offset(center.x + arm, center.y - arm),
                         end = Offset(center.x - arm, center.y + arm),
                         strokeWidth = threatMark.width,

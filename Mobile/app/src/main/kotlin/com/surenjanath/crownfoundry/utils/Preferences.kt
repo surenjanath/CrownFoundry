@@ -63,6 +63,20 @@ fun effectiveBackendUrl(stored: String?): String? {
     return if (backendConfigured) defaultBackendUrl else null
 }
 
+/**
+ * Where a published engine manifest lives, baked in at build time, or `null` for a build that
+ * ships without one.
+ *
+ * Set by `crownfoundry.engineManifestUrl`. This is the update channel for a build with no
+ * referee: the Play Store build has `backendUrl=none` and no server to ask, so without a manifest
+ * to poll the policy inside the APK is the policy until the next release. With one, training a
+ * better policy and publishing the file is enough for every install to pick it up.
+ *
+ * `none` disables it, which is the default, so a build that has not opted in makes no requests.
+ */
+val publishedEngineUrl: String? = BuildConfig.PUBLISHED_ENGINE_URL
+    .takeIf { it.isNotBlank() && it != noBackend }
+
 /** Stable identity for this install, so the AI can model one opponent across matches. */
 const val playerIdKey = "playerId"
 
@@ -77,6 +91,9 @@ const val activeMatchIdKey = "activeMatchId"
  * answer for a person who had simply walked away from the phone.
  */
 const val activeMatchPassAndPlayKey = "activeMatchPassAndPlay"
+
+/** Which of [com.surenjanath.crownfoundry.enums.BoardStyle] the board is drawn in. */
+const val boardStyleKey = "boardStyle"
 
 const val showLegalMovesKey = "showLegalMoves"
 const val showReasoningKey = "showReasoning"

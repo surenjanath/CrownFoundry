@@ -3,8 +3,13 @@ package com.surenjanath.crownfoundry.offline
 import android.content.Context
 import com.surenjanath.crownfoundry.api.CheckersApi
 import com.surenjanath.crownfoundry.api.CrownFoundryClient
+import com.surenjanath.crownfoundry.api.EngineApi
+import com.surenjanath.crownfoundry.api.PublishedEngineApi
+import com.surenjanath.crownfoundry.leaderboard.Leaderboards
+import com.surenjanath.crownfoundry.leaderboard.scoresOf
 import com.surenjanath.crownfoundry.utils.backendUrlKey
 import com.surenjanath.crownfoundry.utils.effectiveBackendUrl
+import com.surenjanath.crownfoundry.utils.publishedEngineUrl
 import com.surenjanath.crownfoundry.utils.preferences as appPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +40,16 @@ object Offline {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private var appContext: Context? = null
+
+    /**
+     * Whether the engine can be updated at all, from either kind of source.
+     *
+     * Distinct from [backendAvailable]: a build with no referee can still be pointed at a
+     * published manifest, and that is the shape the Play Store build actually ships in. What it
+     * gains is updates; what it still cannot do is send its games anywhere.
+     */
+    val engineUpdatesAvailable: Boolean
+        get() = backendAvailable || publishedEngineUrl != null
 
     /**
      * Whether there is a referee to reach: an address from the build, or one the player typed.
@@ -96,7 +111,7 @@ object Offline {
             backendAvailable = { backendAvailable }
         )
         sync = EngineSync(
-            api = CrownFoundryClient,
+            api = engineSourceFor(),
             matches = matchStore,
             preferences = enginePreferences
         )
@@ -108,6 +123,17 @@ object Offline {
     }
 
     /**
+     * The referee when there is one, and the published manifest when there is not.
+     *
+     * Chosen once, at start-up, rather than per call: a player who types a server address into
+     * Settings is choosing a referee, and switching the engine source under a sync already in
+     * flight would leave a download being checked against the other source's manifest.
+     */
+    private fun engineSourceFor(): EngineApi =
+        if (backendAvailable) CrownFoundryClient
+        else publishedEngineUrl?.let { PublishedEngineApi(it) } ?: CrownFoundryClient
+
+    /**
      * Push what was played offline and pull whatever the server has since trained.
      *
      * Fire-and-forget: called when the app comes forward and after a match ends. A player who
@@ -115,22 +141,59 @@ object Offline {
      */
     fun synchroniseInBackground(playerId: String?, force: Boolean = false) {
         // Nothing to push to and nothing to pull from; the bundled engine is the whole product.
-        if (!backendAvailable) return
+        if (!engineUpdatesAvailable) return
         val engineSync = sync ?: return
+
+        // This runs when the app comes forward and after every finished game, which on a build
+        // that has an outbox is the right cadence - there is something new to send each time. On
+        // a build reading a published manifest there is not: nothing goes up, and a policy is
+        // published every few days at best, so a fetch per game is a request per game for an
+        // answer that has not changed. The button in Settings passes `force` and is never
+        // throttled, so "check now" always means now.
+        val settings = preferences
+        if (!force && settings != null && !backendAvailable) {
+            val since = System.currentTimeMillis() - settings.lastCheckedAt
+            if (settings.lastCheckedAt > 0 && since < PUBLISHED_CHECK_INTERVAL_MS) return
+        }
+
         scope.launch {
             runCatching { engineSync.synchronise(playerId, force) }
         }
     }
 
+    /** How often a build with no referee looks for a newly published policy on its own. */
+    private const val PUBLISHED_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L
+
     suspend fun synchronise(
         playerId: String?,
         force: Boolean = false
     ): Pair<EngineSync.UploadResult, EngineSync.Result>? =
-        if (!backendAvailable) null else sync?.synchronise(playerId, force)
+        if (!engineUpdatesAvailable) null else sync?.synchronise(playerId, force)
 
     suspend fun refresh(force: Boolean = false): EngineSync.Result? =
-        if (!backendAvailable) null else sync?.refresh(force)
+        if (!engineUpdatesAvailable) null else sync?.refresh(force)
 
     suspend fun uploadOutbox(playerId: String?): EngineSync.UploadResult? =
         if (!backendAvailable) null else sync?.uploadOutbox(playerId)
+
+    /**
+     * Recompute the leaderboard scores and post them.
+     *
+     * Recomputed from the stored corpus rather than incremented as results arrive, because the
+     * corpus is the only thing that survives a reinstall-and-restore, and a counter kept beside it
+     * would drift the first time a game was written that this call did not see.
+     *
+     * Fire-and-forget, and a no-op in a build with no leaderboards.
+     */
+    fun publishScores() {
+        if (!Leaderboards.available) return
+        val matchStore = store ?: return
+        scope.launch {
+            runCatching {
+                Leaderboards.submitAll(
+                    scoresOf(matchStore.all(), puzzleStore?.all().orEmpty())
+                )
+            }
+        }
+    }
 }

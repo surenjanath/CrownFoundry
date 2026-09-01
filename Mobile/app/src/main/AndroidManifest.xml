@@ -16,6 +16,19 @@
         android:supportsRtl="false"
         android:theme="@style/Theme.CrownFoundry.NoActionBar">
 
+        <!--
+            Play Games reads its application id from here. The value is a string resource rather
+            than a literal because the id is all digits, and a numeric `android:value` is parsed
+            as an integer - which is not what the SDK asks the manifest for.
+
+            Present in every build, empty in most of them. Nothing reads it unless the Games SDK
+            is on the classpath, and that only happens when the build was given an id; see
+            `playGamesConfigured` in build.gradle.kts.
+        -->
+        <meta-data
+            android:name="com.google.android.gms.games.APP_ID"
+            android:value="@string/play_games_app_id" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

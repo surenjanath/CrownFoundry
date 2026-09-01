@@ -55,6 +55,7 @@ import com.surenjanath.crownfoundry.ui.components.BottomSheetMenu
 import com.surenjanath.crownfoundry.ui.components.LocalMenuState
 import com.surenjanath.crownfoundry.ui.screens.home.HomeScreen
 import com.surenjanath.crownfoundry.ui.styling.Appearance
+import com.surenjanath.crownfoundry.leaderboard.Leaderboards
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
 import com.surenjanath.crownfoundry.ui.styling.colorPaletteOf
 import com.surenjanath.crownfoundry.ui.styling.typographyOf
@@ -81,6 +82,10 @@ class MainActivity : ComponentActivity(), PersistMapOwner {
         persistMap = lastCustomNonConfigurationInstance as? PersistMap ?: PersistMap()
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Needs an Activity, not the Application: Play Games signs the player in against the one
+        // in front of them, and there is no window to show a sign-in prompt over before this.
+        Leaderboards.initialise(this)
 
         setContent {
             val isSystemInDarkTheme = isSystemInDarkTheme()

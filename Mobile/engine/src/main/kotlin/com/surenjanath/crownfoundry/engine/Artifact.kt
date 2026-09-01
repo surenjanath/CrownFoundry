@@ -62,14 +62,18 @@ data class EngineHeader(
     @SerialName("base_version") val baseVersion: Int = -1,
     /** Offline games this copy has trained on since it was downloaded. */
     @SerialName("local_games") val localGames: Int = 0,
-    @SerialName("local_loss") val localLoss: Float? = null
+    @SerialName("local_loss") val localLoss: Float? = null,
+    /** Games this copy has played against itself, across every accepted session. */
+    @SerialName("self_play_games") val selfPlayGames: Int = 0,
+    /** Sessions whose weights cleared the guard and were installed. */
+    @SerialName("self_play_sessions") val selfPlaySessions: Int = 0
 ) {
     /** The version to compare against the server's manifest, whatever local training has happened. */
     val serverVersion: Int get() = if (baseVersion >= 0) baseVersion else version
 
     val architecture: String get() = layers.joinToString("-")
 
-    val hasLocalTraining: Boolean get() = localGames > 0
+    val hasLocalTraining: Boolean get() = localGames > 0 || selfPlayGames > 0
 }
 
 private val artifactJson = Json {

@@ -324,6 +324,150 @@ CrownFoundry uses an MLP Q-Network written with **NumPy** for zero-overhead, hig
      python manage.py train_selfplay --games 500 --evaluate 50
      ```
 
+### Self-play on the phone
+
+The device does not only learn from the games you sit through. **Settings → Offline → Train it
+against itself** runs a practice session on the phone: the opponent plays a run of games against
+random play, then against a material grabber, then against its own policy, collects every position
+into a replay buffer, and fits the network once over the whole buffer at a tenth of the artifact's
+learning rate.
+
+Nothing it learns is installed until it has proved itself. The trained candidate plays a match
+against the weights it would replace, from randomised openings, and is discarded unless it wins:
+
+| Check | What it catches |
+|---|---|
+| Head-to-head vs. the previous weights, ≥55% over 20 games | The measurement that has no ceiling — this is what admits an improvement |
+| Baseline vs. Random and Greedy, within 18 points of the champion's | A policy that learned to beat its own previous version by exploiting a blind spot they share |
+
+Both have to pass. The baseline alone saturates — the shipped v42 policy already beats both fixed
+opponents every game from the opening — so a guard built only on it can report a policy getting
+worse and never one getting better.
+
+Measured on the shipped policy, twelve sessions of 25 games (about ten seconds on a laptop, a
+minute or so on a phone) accepted two and produced a policy that beat the one it started from
+**25–13–2 over 40 varied games**. Most sessions are rejected, and that is the guard working rather
+than failing: self-play produces a real improvement some of the time and noise the rest of it.
+
+### Publishing a trained policy
+
+A build with no referee (`crownfoundry.backendUrl=none`, which is what ships on Play) can still
+update its opponent, by polling a static manifest instead of a server:
+
+```bash
+cd Backend
+
+# The database is not committed, so on a fresh clone the exported artifact is the only surviving
+# copy of the trained policy. Load it back before training on top of it.
+python manage.py migrate
+python manage.py import_engine --in ../Mobile/app/src/main/assets/policy.cfe
+
+# Train. Continuing from a stored policy fine-tunes it: a tenth of its own learning rate, and one
+# fitting phase over the replay buffer once the games have been played, rather than fitting each
+# game as it arrives. See --lr-scale and --fit-steps, and the note below on why.
+python manage.py train_selfplay --games 500 --evaluate --eval-games 30 --report
+
+# Export.
+python manage.py export_engine --out ../docs/engine/policy.cfe
+
+# Check it is actually better before publishing it. See the warning below - this is the step
+# that decides, not `--evaluate`.
+cd ../Mobile && ./gradlew :engine:testDebugUnitTest --tests '*ArtifactComparisonTest*' \
+  --rerun-tasks \
+  -Pcrownfoundry.champion=app/src/main/assets/policy.cfe \
+  -Pcrownfoundry.candidate=../docs/engine/policy.cfe
+
+# Publish, if it said PUBLISH.
+cd .. && python tools/publish_engine.py docs/engine/policy.cfe
+
+# Refresh what a *fresh install* starts with, before it has ever fetched an update.
+cp docs/engine/policy.cfe Mobile/app/src/main/assets/policy.cfe
+
+git add docs/engine Mobile/app/src/main/assets/policy.cfe
+git commit -m "engine: publish v43" && git push
+```
+
+> [!IMPORTANT]
+> **`--evaluate` can veto a run but it cannot confirm one.** `should_save` compares scores against a
+> random and a greedy opponent, and it does catch a collapse — a 200-game run at the old defaults
+> took v42 from beating the greedy baseline every game to beating it half the time, and the gate
+> correctly threw it away.
+>
+> What it cannot do is resolve anything finer, or recognise an improvement at all. `ai.training.evaluate`
+> plays every game from the opening position, so for two deterministic policies it is one game
+> repeated; a policy strong enough to win it scores 1.000 before and 1.000 after, whatever happened
+> in between. The shipped v42 beats both fixed opponents every game from the opening and only about
+> 70% of the time from varied ones — that gap is the headroom the measurement throws away.
+>
+> So `--evaluate` is the floor, not the decision. `ArtifactComparisonTest` asks the question the way
+> the device's own guard does — the two policies play *each other* directly, from randomised
+> openings, alternating seats — which has no ceiling. Run it before every publish.
+
+`docs/` is already served by GitHub Pages, so the push is the release. Build the app pointing at
+the manifest and every install picks the new policy up on its own:
+
+```bash
+./gradlew :app:bundleRelease \
+  -Pcrownfoundry.backendUrl=none \
+  -Pcrownfoundry.engineManifestUrl=https://surenjanath.github.io/CrownFoundry/engine/manifest.json
+```
+
+The device verifies the size and the SHA-256 from the manifest before installing, refuses an
+artifact format newer than it reads *before* spending the download on it, and writes through a
+staging file — so a transfer killed halfway leaves the previous engine intact. Artifacts are
+published under versioned names (`policy-v43.cfe`) so a device that reads the manifest and
+downloads a minute later cannot find the bytes changed underneath it.
+
+---
+
+## 🏆 Leaderboards
+
+Three boards, ranked through **Google Play Games**: games won, best win streak, and puzzles
+solved. Everything is computed on the device from the local match corpus, and your own record is
+shown on the Insights tab whether or not you are signed in.
+
+Play Games is compiled in only when the build is given a Play Console app id — its SDK installs a
+startup provider that throws if the manifest has no `APP_ID`, so it cannot be a dependency of a
+build without one. Without these properties the build contains no Games code at all and the boards
+simply do not appear.
+
+**1. Create the Play Games project.** Play Console → *Play Games Services* → *Setup and management*
+→ *Configuration* → **Create a new Play Games Services project**, and link it to the existing
+`com.surenjanath.crownfoundry` app. The **Project ID** it gives you is the numeric app id — twelve
+digits, no letters. That is `playGamesAppId`.
+
+**2. Add the three leaderboards.** *Play Games Services* → *Leaderboards* → **Create leaderboard**,
+three times. The IDs the console generates look like `CgkIxxxxxxxxxxEAQ`, and each one maps to a
+`key` the app already uses:
+
+| Console leaderboard | `key` | Score format | Ordering |
+|---|---|---|---|
+| Games won | `wins` | Integer | Larger is better |
+| Best win streak | `streak` | Integer | Larger is better |
+| Puzzles solved | `puzzles` | Integer | Larger is better |
+
+The names are yours to choose; only the `key` on the left of each colon has to match, because that
+is what `Leaderboard.key` looks itself up by.
+
+**3. Add a credential.** *Play Games Services* → *Configuration* → *Credentials* → **Add
+credential** → *Android*. It needs the SHA-1 of the certificate the app is signed with — for a Play
+App Signing release that is the **app signing key** SHA-1 from *Setup → App integrity*, not your
+upload key. Getting this wrong is the usual cause of a silent sign-in failure, which in this app
+shows up as the boards never appearing rather than as an error.
+
+**4. Fill in `Mobile/gradle.properties`** (the lines are already there, commented out):
+
+```properties
+crownfoundry.playGamesAppId=123456789012
+crownfoundry.playGamesLeaderboards=wins:CgkI…,streak:CgkI…,puzzles:CgkI…
+```
+
+**5. Build.** `./gradlew :app:bundleRelease` — the properties above are picked up automatically.
+
+**6. Publish the Games project.** Leaderboards stay invisible to everyone but your test accounts
+until the Play Games Services project is published, which is a separate button from publishing the
+app itself. Add your own account under *Testers* while you are checking it.
+
 ---
 
 ## 🌐 REST API

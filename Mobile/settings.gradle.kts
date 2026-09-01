@@ -40,6 +40,11 @@ dependencyResolutionManagement {
             library("ktor-serialization-json", "io.ktor", "ktor-serialization-kotlinx-json").versionRef("ktor")
 
             library("desugaring", "com.android.tools", "desugar_jdk_libs").version("2.1.5")
+
+            // Leaderboards, and only when the build is given a Play Console app id. See the
+            // `playGamesConfigured` block in app/build.gradle.kts for why it cannot be
+            // unconditional.
+            library("play-games", "com.google.android.gms", "play-services-games-v2").version("20.1.2")
         }
 
         create("testLibs") {

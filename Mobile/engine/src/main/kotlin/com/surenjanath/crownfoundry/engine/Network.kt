@@ -321,6 +321,27 @@ class QNetwork(
             clone.stepCount = stepCount
         }
 
+    /**
+     * Overwrite these parameters with [other]'s. The inverse of [copy], in place.
+     *
+     * In place because the search and the trainer share one network object: replacing the
+     * reference would leave whoever already held the old one playing weights that had been
+     * rolled back. The optimiser is reset rather than restored - its moments describe a descent
+     * through the weights being discarded, and carrying them onto the restored ones would take
+     * the first few steps in a direction neither set of weights asked for.
+     */
+    fun restoreFrom(other: QNetwork) {
+        require(other.layerSizes.contentEquals(layerSizes)) {
+            "cannot restore ${other.architecture} into $architecture"
+        }
+        for (layer in 0 until nLayers) {
+            other.weights[layer].copyInto(weights[layer])
+            other.biases[layer].copyInto(biases[layer])
+        }
+        resetOptimiser()
+        stepCount = other.stepCount
+    }
+
     override fun toString() = "QNetwork($architecture, steps=$stepCount)"
 }
 

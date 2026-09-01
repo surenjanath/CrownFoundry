@@ -129,6 +129,10 @@ fun InsightsScreen() {
             state.performance != null -> Performance(performance = state.performance)
         }
 
+        // Outside the `when`: the player's own record comes from the local corpus and does not
+        // need the referee, so it is still worth drawing on a screen whose charts failed to load.
+        LeaderboardSection()
+
         Spacer(modifier = Modifier.height(24.dp))
     }
 }
@@ -334,7 +338,7 @@ private fun Performance(performance: PerformanceDto) {
 }
 
 @Composable
-private fun SectionHeading(title: String, subtitle: String) {
+internal fun SectionHeading(title: String, subtitle: String) {
     val (colorPalette, typography) = LocalAppearance.current
 
     Column(

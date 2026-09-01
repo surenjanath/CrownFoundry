@@ -27,6 +27,7 @@ import com.surenjanath.crownfoundry.offline.preferOfflineKey
 import com.surenjanath.crownfoundry.ui.components.themed.ConfirmationDialog
 import com.surenjanath.crownfoundry.ui.components.themed.Header
 import com.surenjanath.crownfoundry.ui.screens.home.rememberPlayerId
+import com.surenjanath.crownfoundry.ui.screens.trainingRoute
 import com.surenjanath.crownfoundry.ui.styling.LocalAppearance
 import com.surenjanath.crownfoundry.utils.rememberPreference
 import java.time.Instant
@@ -165,6 +166,23 @@ fun OfflineSettings() {
                     "the opponent's decisions is scored against how the game actually went, and " +
                     "the policy is nudged accordingly. It takes a moment at the end of a match " +
                     "and it means the next game faces an opponent that saw the last one."
+        )
+
+        SettingsEntry(
+            title = "Train it against itself",
+            text = engine.header?.takeIf { it.selfPlayGames > 0 }?.let {
+                "${it.selfPlayGames} games of practice so far"
+            } ?: "Run a practice session and keep the result only if it plays better",
+            isEnabled = engine.canPlayOffline,
+            onClick = { trainingRoute.global() }
+        )
+
+        SettingsDescription(
+            text = "Learning from your games moves the policy by about ten optimiser steps a " +
+                    "match, against a network with thousands behind it - real, but slow enough " +
+                    "that you would not notice it in a hundred games. A practice session plays " +
+                    "hundreds by itself in a minute, and every one of them has to beat the " +
+                    "current weights in a match before it is allowed to replace them."
         )
 
         SettingsGroupSpacer()

@@ -83,6 +83,7 @@ fun PuzzleScreen(puzzleId: String) {
         val current = session ?: return@LaunchedEffect
         if (!current.verdict.isFinished) return@LaunchedEffect
         Offline.puzzles?.record(current.puzzle.id, current.verdict.isCorrect)
+        if (current.verdict.isCorrect) Offline.publishScores()
     }
 
     Column(

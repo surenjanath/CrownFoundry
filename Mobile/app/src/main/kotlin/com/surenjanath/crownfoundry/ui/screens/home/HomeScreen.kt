@@ -25,6 +25,8 @@ import com.surenjanath.crownfoundry.ui.screens.puzzles.PuzzlesScreen
 import com.surenjanath.crownfoundry.ui.screens.reviewRoute
 import com.surenjanath.crownfoundry.ui.screens.settings.SettingsScreen
 import com.surenjanath.crownfoundry.ui.screens.settingsRoute
+import com.surenjanath.crownfoundry.ui.screens.training.TrainingScreen
+import com.surenjanath.crownfoundry.ui.screens.trainingRoute
 import com.surenjanath.crownfoundry.utils.homeScreenTabIndexKey
 import com.surenjanath.crownfoundry.utils.rememberPreference
 
@@ -51,6 +53,10 @@ fun HomeScreen() {
 
         settingsRoute {
             SettingsScreen()
+        }
+
+        trainingRoute {
+            TrainingScreen()
         }
 
         reviewRoute { matchId ->
