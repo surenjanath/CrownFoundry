@@ -26,6 +26,10 @@ on:
         type: boolean
         required: false
         default: true
+      seed:
+        description: "Training seed (default: the run number, so each run differs)"
+        required: false
+        default: ""
 
 concurrency:
   # Two runs would train from the same champion and race to publish different successors.
@@ -69,13 +73,22 @@ jobs:
           # weights and the gate would - correctly - throw the result away every night.
           python manage.py import_engine --in ../Mobile/app/src/main/assets/policy.cfe
 
+      # The seed varies per run, and that is not a detail. `train_selfplay` seeds both the
+      # opponent and the opening book from it, so a fixed seed makes every night replay the
+      # identical games from the identical champion - and a run that gets rejected once would be
+      # rejected every night forever, at twenty minutes of CI a time. Found the hard way: three
+      # local rounds came back with the same mean loss to five decimals and the same 111/130/9
+      # win split, because they were one experiment run three times.
       - name: Train
         working-directory: Backend
         env:
           GAMES: ${{ inputs.games || '300' }}
+          SEED: ${{ inputs.seed || github.run_number }}
         run: |
+          echo "training $GAMES games at seed $SEED"
           python manage.py train_selfplay \
             --games "$GAMES" \
+            --seed "$SEED" \
             --evaluate --eval-games 30 \
             --report --report-every 50
 
